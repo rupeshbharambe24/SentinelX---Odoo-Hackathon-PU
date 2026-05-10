@@ -32,7 +32,7 @@ CSV_CANDIDATES = [
     "cost_of_living_2024.csv",
 ]
 
-SCORE_CUTOFF = 75  # fuzzy match threshold (0-100)
+SCORE_CUTOFF = 80  # rapidfuzz WRatio threshold (0-100). 75 too loose (Malta→Malaysia), 80 is sweet spot.
 
 
 def _find_csv() -> str:
