@@ -36,9 +36,7 @@ try:
 
     if settings.GEMINI_API_KEY:
         genai.configure(api_key=settings.GEMINI_API_KEY)
-    # gemini-1.5-flash was deprecated on the v1beta API; gemini-2.0-flash is
-    # the current free-tier successor with the same generateContent signature.
-    _GEMINI_MODEL = "gemini-2.0-flash"
+    _GEMINI_MODEL = "gemini-2.5-flash"
 except Exception as exc:  # pragma: no cover
     logger.warning("Gemini client init failed: %s", exc)
     genai = None  # type: ignore
