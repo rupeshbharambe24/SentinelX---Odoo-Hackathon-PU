@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { TripSubNav } from "@/components/trip-sub-nav";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import type { Section } from "./_app.trips.$tripId.builder";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 export const Route = createFileRoute("/_app/trips/$tripId/budget")({
@@ -24,29 +25,22 @@ function BudgetTracker() {
 
   const { data: trip } = useQuery({
     queryKey: ["trip", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("trips").select("*").eq("id", tripId).single();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      api<{
+        name: string;
+        description: string | null;
+        total_budget: number | null;
+      }>(`/trips/${tripId}`),
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["itinerary", tripId],
-    queryFn: async () => {
-      const { data: sections, error } = await supabase
-        .from("trip_sections").select("*, activities(*)").eq("trip_id", tripId).order("position");
-      if (error) throw error;
-      return sections as Array<{
-        id: string; name: string; budget: number | null;
-        activities: Array<{ id: string; title: string; category: string | null; cost: number | null }>;
-      }>;
-    },
+    queryKey: ["sections", tripId],
+    queryFn: () => api<Section[]>(`/sections/by-trip/${tripId}`),
   });
 
   const allActivities = (data ?? []).flatMap((s) => s.activities);
   const totalSpent = allActivities.reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
-  const totalBudget = Number(trip?.budget ?? 0);
+  const totalBudget = Number(trip?.total_budget ?? 0);
   const pct = totalBudget > 0 ? Math.min(100, (totalSpent / totalBudget) * 100) : 0;
   const remaining = Math.max(0, totalBudget - totalSpent);
 
@@ -60,9 +54,9 @@ function BudgetTracker() {
 
   // By section
   const barData = (data ?? []).map((s) => ({
-    name: s.name.length > 12 ? s.name.slice(0, 12) + "…" : s.name,
+    name: s.title.length > 12 ? s.title.slice(0, 12) + "…" : s.title,
     spent: s.activities.reduce((sum, a) => sum + Number(a.cost ?? 0), 0),
-    budget: Number(s.budget ?? 0),
+    budget: Number(s.section_budget ?? 0),
   }));
 
   return (
@@ -71,10 +65,10 @@ function BudgetTracker() {
         <Button asChild variant="ghost" size="sm" className="mb-2 -ml-2">
           <Link to="/trips"><ArrowLeft className="mr-1 h-4 w-4" /> All trips</Link>
         </Button>
-        <h1 className="font-display text-3xl font-bold">{trip?.title ?? "Budget Tracker"}</h1>
-        {trip?.destination && (
+        <h1 className="font-display text-3xl font-bold">{trip?.name ?? "Budget Tracker"}</h1>
+        {trip?.description && (
           <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-            <MapPin className="h-3.5 w-3.5" /> {trip.destination}
+            <MapPin className="h-3.5 w-3.5" /> {trip.description}
           </div>
         )}
       </div>
@@ -168,8 +162,8 @@ function BudgetTracker() {
                   {(data ?? []).flatMap((s) =>
                     s.activities.map((a) => (
                       <tr key={a.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-base">
-                        <td className="px-4 py-2.5 font-medium">{a.title}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground">{s.name}</td>
+                        <td className="px-4 py-2.5 font-medium">{a.name}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{s.title}</td>
                         <td className="px-4 py-2.5 text-muted-foreground">{a.category ?? "—"}</td>
                         <td className="px-4 py-2.5 text-right font-medium">${Number(a.cost ?? 0).toFixed(0)}</td>
                       </tr>

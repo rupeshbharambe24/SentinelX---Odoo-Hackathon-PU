@@ -1,139 +1,103 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Download, MapPin, Printer, FileText } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Download, MapPin, Printer, FileText, RefreshCw, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { TripSubNav } from "@/components/trip-sub-nav";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/lib/use-auth";
+import { api, ApiError, API_URL, getToken } from "@/lib/api";
 import { format } from "date-fns";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/trips/$tripId/invoice")({
   head: () => ({ meta: [{ title: "Invoice — Traveloop" }] }),
   component: Invoice,
 });
 
+interface InvoiceItem {
+  category: string;
+  description: string;
+  quantity_or_details: string;
+  unit_cost: number;
+  amount: number;
+}
+
+interface InvoiceData {
+  id: string;
+  trip_id: string;
+  invoice_number: string;
+  generated_date: string | null;
+  status: "pending" | "paid" | "cancelled";
+  items: InvoiceItem[];
+  subtotal: number;
+  tax_percent: number;
+  tax_amount: number;
+  discount: number;
+  grand_total: number;
+  traveler_details: Record<string, string>;
+}
+
 function Invoice() {
   const { tripId } = Route.useParams();
-  const { user } = useAuth();
+  const qc = useQueryClient();
 
   const { data: trip } = useQuery({
     queryKey: ["trip", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("trips").select("*").eq("id", tripId).single();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      api<{
+        name: string;
+        description: string | null;
+        start_date: string | null;
+        end_date: string | null;
+      }>(`/trips/${tripId}`),
   });
 
-  const { data: profile } = useQuery({
-    queryKey: ["profile", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("*").eq("id", user!.id).single();
-      return data;
-    },
+  const { data: invoice, isLoading, error } = useQuery({
+    queryKey: ["invoice", tripId],
+    queryFn: () => api<InvoiceData>(`/trips/${tripId}/invoice`),
+    retry: false,
   });
 
-  const { data: sections, isLoading } = useQuery({
-    queryKey: ["itinerary", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("trip_sections").select("*, activities(*)").eq("trip_id", tripId).order("position");
-      if (error) throw error;
-      return data as Array<{
-        id: string; name: string; city: string | null; budget: number | null;
-        activities: Array<{ id: string; title: string; category: string | null; cost: number | null; duration_hours: number | null }>;
-      }>;
+  const regenerate = useMutation({
+    mutationFn: () => api<InvoiceData>(`/trips/${tripId}/invoice/generate`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoice", tripId] });
+      toast.success("Invoice regenerated from latest expenses");
     },
+    onError: (e: ApiError) => toast.error(e.detail),
   });
 
-  const allActivities = (sections ?? []).flatMap((s) =>
-    s.activities.map((a) => ({ ...a, sectionName: s.name }))
-  );
-  const subtotal = allActivities.reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
-  const tax = subtotal * 0; // No tax by default
-  const grandTotal = subtotal + tax;
-  const invoiceNumber = `TL-${tripId.slice(0, 8).toUpperCase()}`;
-  const invoiceDate = format(new Date(), "MMM d, yyyy");
+  const markPaid = useMutation({
+    mutationFn: () =>
+      api(`/invoices/${invoice!.id}/mark-paid`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoice", tripId] });
+      toast.success("Invoice marked as paid");
+    },
+  });
 
   const handleDownloadPDF = async () => {
-    const { default: jsPDF } = await import("jspdf");
-    const { default: autoTable } = await import("jspdf-autotable");
-
-    const doc = new jsPDF();
-
-    // Header
-    doc.setFontSize(22);
-    doc.setFont("helvetica", "bold");
-    doc.text("Traveloop", 14, 22);
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100);
-    doc.text("Travel Invoice", 14, 28);
-
-    // Invoice Info
-    doc.setFontSize(10);
-    doc.setTextColor(50);
-    doc.text(`Invoice #: ${invoiceNumber}`, 140, 16);
-    doc.text(`Date: ${invoiceDate}`, 140, 22);
-    doc.text(`Trip: ${trip?.title ?? ""}`, 140, 28);
-
-    // Billed To
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(30);
-    doc.text("Billed To:", 14, 42);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(profile?.full_name ?? "Traveler", 14, 48);
-    doc.text(profile?.email ?? "", 14, 53);
-    if (trip?.destination) doc.text(`Destination: ${trip.destination}`, 14, 58);
-    if (trip?.start_date && trip?.end_date) {
-      doc.text(`Dates: ${format(new Date(trip.start_date), "MMM d")} — ${format(new Date(trip.end_date), "MMM d, yyyy")}`, 14, 63);
+    if (!invoice) return;
+    try {
+      const url = `${API_URL}/invoices/${invoice.id}/pdf`;
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `traveloop-invoice-${invoice.invoice_number}.pdf`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Download failed");
     }
-
-    // Table
-    const rows = allActivities.map((a, i) => [
-      String(i + 1),
-      a.title,
-      a.sectionName,
-      a.category ?? "—",
-      a.duration_hours ? `${a.duration_hours}h` : "—",
-      `$${Number(a.cost ?? 0).toFixed(2)}`,
-    ]);
-
-    autoTable(doc, {
-      startY: 72,
-      head: [["#", "Activity", "Section", "Category", "Duration", "Cost"]],
-      body: rows,
-      theme: "striped",
-      headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: "bold" },
-      styles: { fontSize: 9, cellPadding: 3 },
-      columnStyles: { 0: { cellWidth: 10 }, 5: { halign: "right" } },
-    });
-
-    // Totals
-    const finalY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
-    doc.setFontSize(10);
-    doc.text(`Subtotal:`, 140, finalY);
-    doc.text(`$${subtotal.toFixed(2)}`, 185, finalY, { align: "right" });
-    doc.text(`Tax (0%):`, 140, finalY + 6);
-    doc.text(`$${tax.toFixed(2)}`, 185, finalY + 6, { align: "right" });
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text(`Grand Total:`, 140, finalY + 14);
-    doc.text(`$${grandTotal.toFixed(2)}`, 185, finalY + 14, { align: "right" });
-
-    // Footer
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(150);
-    doc.text("Generated by Traveloop — multi-city travel planning", 14, 285);
-
-    doc.save(`traveloop-invoice-${invoiceNumber}.pdf`);
   };
+
+  const invoiceDate = invoice?.generated_date
+    ? format(new Date(invoice.generated_date), "MMM d, yyyy")
+    : format(new Date(), "MMM d, yyyy");
 
   return (
     <div className="space-y-6">
@@ -142,8 +106,8 @@ function Invoice() {
           <Link to="/trips"><ArrowLeft className="mr-1 h-4 w-4" /> All trips</Link>
         </Button>
         <h1 className="font-display text-3xl font-bold">Invoice</h1>
-        {trip?.destination && (
-          <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" /> {trip.destination}</div>
+        {trip?.description && (
+          <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" /> {trip.description}</div>
         )}
       </div>
 
@@ -151,7 +115,11 @@ function Invoice() {
 
       {isLoading ? (
         <Skeleton className="h-96 rounded-2xl" />
-      ) : (
+      ) : error ? (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-6 text-sm">
+          {(error as ApiError).detail ?? "Could not load invoice"}
+        </div>
+      ) : invoice ? (
         <>
           {/* Invoice Header */}
           <div className="rounded-2xl border border-border bg-card shadow-soft overflow-hidden">
@@ -165,8 +133,14 @@ function Invoice() {
                   <p className="text-sm text-white/80">Travel Invoice</p>
                 </div>
                 <div className="text-right text-sm">
-                  <div className="font-medium">Invoice #{invoiceNumber}</div>
+                  <div className="font-medium">Invoice #{invoice.invoice_number}</div>
                   <div className="text-white/80">Date: {invoiceDate}</div>
+                  <Badge
+                    variant={invoice.status === "paid" ? "default" : "secondary"}
+                    className="mt-1"
+                  >
+                    {invoice.status.toUpperCase()}
+                  </Badge>
                 </div>
               </div>
             </div>
@@ -176,16 +150,17 @@ function Invoice() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <div className="text-xs text-muted-foreground mb-1">Billed To</div>
-                  <div className="font-medium">{profile?.full_name ?? "Traveler"}</div>
-                  <div className="text-sm text-muted-foreground">{profile?.email ?? ""}</div>
+                  <div className="font-medium">{invoice.traveler_details.name ?? "Traveler"}</div>
+                  <div className="text-sm text-muted-foreground">{invoice.traveler_details.email ?? ""}</div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground mb-1">Trip Details</div>
-                  <div className="font-medium">{trip?.title}</div>
-                  {trip?.start_date && trip?.end_date && (
-                    <div className="text-sm text-muted-foreground">
-                      {format(new Date(trip.start_date), "MMM d")} — {format(new Date(trip.end_date), "MMM d, yyyy")}
-                    </div>
+                  <div className="font-medium">{invoice.traveler_details.trip_name ?? trip?.name}</div>
+                  {invoice.traveler_details.travel_dates && (
+                    <div className="text-sm text-muted-foreground">{invoice.traveler_details.travel_dates}</div>
+                  )}
+                  {invoice.traveler_details.destination && (
+                    <div className="text-sm text-muted-foreground">{invoice.traveler_details.destination}</div>
                   )}
                 </div>
               </div>
@@ -197,29 +172,29 @@ function Invoice() {
                 <thead>
                   <tr className="border-b border-border bg-muted/50">
                     <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground w-10">#</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Activity</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Section</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Category</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">Duration</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">Cost</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Description</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Qty</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">Unit cost</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">Amount</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {allActivities.length === 0 ? (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No activities to invoice.</td></tr>
+                  {invoice.items.length === 0 ? (
+                    <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                      No expenses logged for this trip yet. Log expenses to see them on the invoice.
+                    </td></tr>
                   ) : (
-                    allActivities.map((a, i) => (
-                      <tr key={a.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-base">
+                    invoice.items.map((item, i) => (
+                      <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/30 transition-base">
                         <td className="px-4 py-3 text-muted-foreground">{i + 1}</td>
-                        <td className="px-4 py-3 font-medium">{a.title}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{a.sectionName}</td>
                         <td className="px-4 py-3">
-                          {a.category ? <Badge variant="secondary" className="text-[10px]">{a.category}</Badge> : "—"}
+                          <Badge variant="secondary" className="text-[10px]">{item.category}</Badge>
                         </td>
-                        <td className="px-4 py-3 text-right text-muted-foreground">
-                          {a.duration_hours ? `${a.duration_hours}h` : "—"}
-                        </td>
-                        <td className="px-4 py-3 text-right font-medium">${Number(a.cost ?? 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 font-medium">{item.description}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{item.quantity_or_details}</td>
+                        <td className="px-4 py-3 text-right text-muted-foreground">${item.unit_cost.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right font-medium">${item.amount.toFixed(2)}</td>
                       </tr>
                     ))
                   )}
@@ -232,15 +207,21 @@ function Invoice() {
               <div className="ml-auto max-w-xs space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
-                  <span>${subtotal.toFixed(2)}</span>
+                  <span>${invoice.subtotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Tax (0%)</span>
-                  <span>${tax.toFixed(2)}</span>
+                  <span className="text-muted-foreground">Tax ({invoice.tax_percent}%)</span>
+                  <span>${invoice.tax_amount.toFixed(2)}</span>
                 </div>
+                {invoice.discount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Discount</span>
+                    <span>-${invoice.discount.toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between border-t border-border pt-2 text-base font-bold">
                   <span>Grand Total</span>
-                  <span className="text-primary">${grandTotal.toFixed(2)}</span>
+                  <span className="text-primary">${invoice.grand_total.toFixed(2)}</span>
                 </div>
               </div>
             </div>
@@ -251,12 +232,24 @@ function Invoice() {
             <Button onClick={handleDownloadPDF} className="shadow-soft">
               <Download className="mr-1 h-4 w-4" /> Download PDF
             </Button>
+            <Button variant="outline" onClick={() => regenerate.mutate()} disabled={regenerate.isPending}>
+              <RefreshCw className="mr-1 h-4 w-4" /> Regenerate
+            </Button>
+            {invoice.status !== "paid" && (
+              <Button
+                variant="outline"
+                onClick={() => markPaid.mutate()}
+                disabled={markPaid.isPending}
+              >
+                <CheckCircle2 className="mr-1 h-4 w-4" /> Mark as paid
+              </Button>
+            )}
             <Button variant="outline" onClick={() => window.print()}>
               <Printer className="mr-1 h-4 w-4" /> Print
             </Button>
           </div>
         </>
-      )}
+      ) : null}
     </div>
   );
 }
