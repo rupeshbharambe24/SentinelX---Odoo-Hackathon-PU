@@ -189,3 +189,37 @@ def recent(
         }
         for t in rows
     ]
+
+
+@router.get("/cities/{city_id}/activities")
+def city_activities(
+    city_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+):
+    """Return all seeded activity templates for a given city (useful for admin preview)."""
+    city = db.query(City).filter(City.id == city_id).first()
+    if not city:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="City not found")
+    acts = (
+        db.query(ActivityTemplate)
+        .filter(ActivityTemplate.city_id == city_id)
+        .order_by(ActivityTemplate.avg_cost.asc())
+        .all()
+    )
+    return {
+        "city": {"id": city.id, "name": city.name, "country": city.country},
+        "activity_count": len(acts),
+        "activities": [
+            {
+                "id": a.id,
+                "name": a.name,
+                "category": a.category,
+                "avg_cost": a.avg_cost,
+                "avg_duration_min": a.avg_duration_min,
+                "description": a.description,
+            }
+            for a in acts
+        ],
+    }
