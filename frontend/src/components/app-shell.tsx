@@ -1,24 +1,28 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { BarChart3, Compass, Globe, LayoutDashboard, LogOut, Map, Users, User as UserIcon } from "lucide-react";
+import { BarChart3, Compass, Globe, LayoutDashboard, LogOut, Map, Shield, Users, User as UserIcon } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/use-auth";
 import { toast } from "sonner";
 
 const nav = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/explore", label: "Explore", icon: Globe },
-  { to: "/trips", label: "My Trips", icon: Map },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/community", label: "Community", icon: Users },
-  { to: "/profile", label: "Profile", icon: UserIcon },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, adminOnly: false },
+  { to: "/explore", label: "Explore", icon: Globe, adminOnly: false },
+  { to: "/trips", label: "My Trips", icon: Map, adminOnly: false },
+  { to: "/analytics", label: "Analytics", icon: BarChart3, adminOnly: false },
+  { to: "/community", label: "Community", icon: Users, adminOnly: false },
+  { to: "/profile", label: "Profile", icon: UserIcon, adminOnly: false },
+  { to: "/admin", label: "Admin", icon: Shield, adminOnly: true },
 ] as const;
 
 export function AppShell() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const path = useRouterState({ select: (s) => s.location.pathname });
+
+  const visibleNav = nav.filter((n) => !n.adminOnly || user?.is_admin);
 
   const initials = (user?.email ?? "U").slice(0, 2).toUpperCase();
 
@@ -39,19 +43,29 @@ export function AppShell() {
             <span>Traveloop</span>
           </Link>
           <nav className="hidden flex-1 items-center gap-1 md:flex">
-            {nav.map((n) => {
+            {visibleNav.map((n) => {
               const active = path.startsWith(n.to);
               return (
                 <Link
                   key={n.to}
                   to={n.to}
-                  className={`rounded-md px-3 py-2 text-sm font-medium transition-base ${
-                    active
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-base ${
+                    n.adminOnly
+                      ? active
+                        ? "bg-destructive/15 text-destructive"
+                        : "text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+                      : active
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                   }`}
                 >
+                  {n.adminOnly && <Shield className="h-3.5 w-3.5" />}
                   {n.label}
+                  {n.adminOnly && (
+                    <Badge variant="destructive" className="ml-1 h-4 px-1 text-[9px]">
+                      admin
+                    </Badge>
+                  )}
                 </Link>
               );
             })}
@@ -68,7 +82,7 @@ export function AppShell() {
         </div>
         {/* Mobile nav */}
         <nav className="flex items-center gap-1 overflow-x-auto border-t border-border px-4 py-2 md:hidden">
-          {nav.map((n) => {
+          {visibleNav.map((n) => {
             const active = path.startsWith(n.to);
             const Icon = n.icon;
             return (
@@ -76,7 +90,13 @@ export function AppShell() {
                 key={n.to}
                 to={n.to}
                 className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${
-                  active ? "bg-accent text-accent-foreground" : "text-muted-foreground"
+                  n.adminOnly
+                    ? active
+                      ? "bg-destructive/15 text-destructive"
+                      : "text-destructive/70"
+                    : active
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" />

@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueries } from "@tanstack/react-query";
-import { Globe, Wallet, TrendingUp, Calendar, Shield } from "lucide-react";
+import { Globe, Wallet, TrendingUp, Calendar } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/use-auth";
 import type { Section } from "./_app.trips.$tripId.builder";
@@ -28,20 +27,6 @@ interface Trip {
   created_at: string;
 }
 
-interface AdminStats {
-  total_users: number;
-  total_trips: number;
-  trips_today: number;
-  active_users_30d: number;
-}
-
-interface PopularCity {
-  city_id: number;
-  name: string;
-  country: string | null;
-  visit_count: number;
-}
-
 function Analytics() {
   const { user } = useAuth();
 
@@ -61,18 +46,6 @@ function Analytics() {
   const sectionsByTrip: Record<string, Section[]> = {};
   (trips ?? []).forEach((t, idx) => {
     sectionsByTrip[t.id] = sectionResults[idx]?.data ?? [];
-  });
-
-  // Admin-only data — only fetched if the user is_admin.
-  const { data: adminStats } = useQuery({
-    queryKey: ["admin", "stats"],
-    enabled: !!user?.is_admin,
-    queryFn: () => api<AdminStats>("/admin/stats"),
-  });
-  const { data: popularCities } = useQuery({
-    queryKey: ["admin", "popular-cities"],
-    enabled: !!user?.is_admin,
-    queryFn: () => api<PopularCity[]>("/admin/popular/cities", { query: { limit: 8 } }),
   });
 
   const allActivities = Object.values(sectionsByTrip).flatMap((ss) => ss.flatMap((s) => s.activities));
@@ -118,39 +91,11 @@ function Analytics() {
         <p className="text-sm text-muted-foreground">Overview of your travel stats and spending.</p>
       </div>
 
-      {/* Admin-only top section */}
+      {/* Admin pointer — admin section now lives in its own /admin portal */}
       {user?.is_admin && (
-        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 shadow-soft space-y-4">
-          <div className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-primary" />
-            <h2 className="font-display text-sm font-semibold">Platform Admin</h2>
-            <Badge variant="secondary" className="text-[10px]">admin only</Badge>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {adminStats && [
-              { label: "Total users", value: adminStats.total_users },
-              { label: "Total trips", value: adminStats.total_trips },
-              { label: "Trips today", value: adminStats.trips_today },
-              { label: "Active 30d", value: adminStats.active_users_30d },
-            ].map((s) => (
-              <div key={s.label} className="rounded-xl border border-border bg-card p-3">
-                <div className="text-xs text-muted-foreground">{s.label}</div>
-                <div className="font-display text-lg font-bold">{s.value}</div>
-              </div>
-            ))}
-          </div>
-          {popularCities && popularCities.length > 0 && (
-            <div>
-              <div className="text-xs font-medium mb-2">Most popular cities</div>
-              <div className="flex flex-wrap gap-1.5">
-                {popularCities.map((c) => (
-                  <Badge key={c.city_id} variant="secondary" className="text-[10px]">
-                    {c.name} {c.country ? `· ${c.country}` : ""} <span className="ml-1 opacity-70">×{c.visit_count}</span>
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-xs text-muted-foreground">
+          You're an admin. Platform-wide analytics live in the dedicated{" "}
+          <a href="/admin" className="font-medium text-destructive underline">Admin Portal</a>.
         </div>
       )}
 
