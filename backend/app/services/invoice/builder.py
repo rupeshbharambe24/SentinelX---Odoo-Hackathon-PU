@@ -115,6 +115,8 @@ def build_invoice_from_expenses(
         )
 
     subtotal = round(sum(li.amount for li in line_items), 2)
+    # Clamp discount so grand_total can never go negative.
+    discount = max(0.0, min(discount, subtotal))
     tax_amount = round(subtotal * tax_percent / 100, 2)
     grand_total = round(subtotal + tax_amount - discount, 2)
 
