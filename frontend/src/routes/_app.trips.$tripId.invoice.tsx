@@ -182,7 +182,15 @@ function Invoice() {
                 <tbody>
                   {invoice.items.length === 0 ? (
                     <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                      No expenses logged for this trip yet. Log expenses to see them on the invoice.
+                      No expenses logged for this trip yet.{" "}
+                      <Link
+                        to="/trips/$tripId/budget"
+                        params={{ tripId }}
+                        className="font-medium text-primary underline"
+                      >
+                        Open Budget tab
+                      </Link>{" "}
+                      to log expenses or auto-sync from your activities, then come back and click Regenerate.
                     </td></tr>
                   ) : (
                     invoice.items.map((item, i) => (
