@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env
+.env
+.env.local
+*.env
+
+# DB
+*.sqlite
+*.db
+backend/traveloop.db
+
+# Node
+node_modules/
+dist/
+.vite/
+.next/
+.turbo/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Build outputs
+backend/data/raw/
+backend/app/data/embeddings/
+
+# Uploads (ephemeral local file storage)
+backend/uploads/
