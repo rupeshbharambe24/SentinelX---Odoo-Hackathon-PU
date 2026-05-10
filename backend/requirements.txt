@@ -16,6 +16,7 @@ email-validator==2.2.0
 groq==0.11.0
 google-generativeai==0.8.3
 weasyprint==62.3
+pydyf>=0.10.0,<0.11   # WeasyPrint 62 requires pydyf <0.11; newer transitive deps may pull 0.12
 jinja2==3.1.4
 
 # Member C
