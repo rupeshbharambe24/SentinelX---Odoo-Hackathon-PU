@@ -1,0 +1,31 @@
+from app.schemas import (
+    auth,
+    user,
+    trip,
+    section,
+    activity,
+    expense,
+    packing,
+    notes,
+    community,
+    city,
+    ai,
+    invoice,
+    admin,
+)
+
+__all__ = [
+    "auth",
+    "user",
+    "trip",
+    "section",
+    "activity",
+    "expense",
+    "packing",
+    "notes",
+    "community",
+    "city",
+    "ai",
+    "invoice",
+    "admin",
+]
