@@ -113,10 +113,13 @@ def popular_activities(
 
 @router.get("/users", response_model=List[UserAdminView])
 def list_users(
+    page: int = Query(1, ge=1, description="Page number"),
+    size: int = Query(50, ge=1, le=200, description="Results per page"),
     db: Session = Depends(get_db),
     _: User = Depends(get_admin_user),
 ):
-    # Flat list. last_active = MAX(trip.created_at) per user.
+    # Paginated list. last_active = MAX(trip.created_at) per user.
+    offset = (page - 1) * size
     rows = (
         db.query(
             User,
@@ -125,6 +128,9 @@ def list_users(
         )
         .outerjoin(Trip, Trip.user_id == User.id)
         .group_by(User.id)
+        .order_by(User.created_at.desc())
+        .offset(offset)
+        .limit(size)
         .all()
     )
     return [
@@ -175,6 +181,10 @@ def recent(
             "id": str(t.id),
             "name": t.name,
             "user_id": str(t.user_id),
+            "start_date": str(t.start_date) if t.start_date else None,
+            "end_date": str(t.end_date) if t.end_date else None,
+            "is_public": t.is_public,
+            "total_budget": t.total_budget,
             "created_at": t.created_at,
         }
         for t in rows
