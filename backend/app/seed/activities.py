@@ -26,6 +26,24 @@ RADIUS_METERS = 10_000
 PLACES_PER_CITY = 50
 SLEEP_BETWEEN_REQUESTS = 0.25  # seconds — stays under 5 req/sec
 
+# Famous-tourist cities that population-rank doesn't capture. Always seeded
+# even if they don't crack the top 100. Names + countries match GeoNames.
+TOURIST_CITIES: list[tuple[str, str]] = [
+    ("Paris", "France"), ("Rome", "Italy"), ("Kyoto", "Japan"),
+    ("Venice", "Italy"), ("Barcelona", "Spain"), ("Amsterdam", "Netherlands"),
+    ("Prague", "Czechia"), ("Vienna", "Austria"), ("Florence", "Italy"),
+    ("Athens", "Greece"), ("Lisbon", "Portugal"), ("Madrid", "Spain"),
+    ("Marrakesh", "Morocco"), ("Cape Town", "South Africa"),
+    ("Buenos Aires", "Argentina"), ("Rio de Janeiro", "Brazil"),
+    ("Edinburgh", "United Kingdom"), ("Dublin", "Ireland"),
+    ("Stockholm", "Sweden"), ("Copenhagen", "Denmark"),
+    ("Mexico City", "Mexico"), ("Cusco", "Peru"),
+    ("Reykjavík", "Iceland"), ("Sydney", "Australia"),
+    ("Auckland", "New Zealand"), ("Singapore", "Singapore"),
+    ("Hong Kong", "Hong Kong"), ("Berlin", "Germany"),
+    ("Munich", "Germany"), ("Budapest", "Hungary"),
+]
+
 # OpenTripMap 'kinds' → estimated avg cost (USD)
 KINDS_COST_MAP: dict[str, float] = {
     "museums":                      15.0,
@@ -51,28 +69,53 @@ KINDS_COST_MAP: dict[str, float] = {
     "nightlife":                    25.0,
 }
 
-# OpenTripMap kinds → simplified category for our schema
+# OpenTripMap kinds → simplified category for our schema.
+#
+# Order matters: this dict is iterated and the first key matching as a
+# substring of the place's kinds CSV wins. So put MORE SPECIFIC categories
+# before "sightseeing", otherwise a restaurant tagged "foods,restaurants,
+# interesting_places" would match nothing food-related and fall through.
 KINDS_CATEGORY_MAP: dict[str, str] = {
+    # food (must be checked first — overlaps with sightseeing tags)
+    "foods":                        "food",
+    "restaurants":                  "food",
+    "cafes":                        "food",
+    # shopping
+    "shopping":                     "shopping",
+    "marketplaces":                 "shopping",
+    # nightlife
+    "nightlife":                    "nightlife",
+    "pubs":                         "nightlife",
+    "bars":                         "nightlife",
+    # relaxation
+    "beaches":                      "relaxation",
+    "gardens_and_parks":            "relaxation",
+    "spa":                          "relaxation",
+    # adventure
+    "sport":                        "adventure",
+    "natural":                      "adventure",
+    # everything else → sightseeing
     "museums":                      "sightseeing",
     "art_galleries":                "sightseeing",
     "historic":                     "sightseeing",
     "archaeology":                  "sightseeing",
     "architecture":                 "sightseeing",
-    "natural":                      "adventure",
-    "gardens_and_parks":            "relaxation",
-    "beaches":                      "relaxation",
     "amusements":                   "sightseeing",
     "theatres_and_entertainments":  "sightseeing",
     "cinemas":                      "sightseeing",
-    "sport":                        "adventure",
     "zoos":                         "sightseeing",
     "religion":                     "sightseeing",
     "cultural":                     "sightseeing",
-    "shopping":                     "shopping",
-    "foods":                        "food",
-    "restaurants":                  "food",
-    "cafes":                        "food",
-    "nightlife":                    "nightlife",
+}
+
+# Average duration (minutes) by category — varies more than a flat 60.
+DURATION_BY_CATEGORY: dict[str, int] = {
+    "food":         90,
+    "shopping":     90,
+    "nightlife":   180,
+    "relaxation":  120,
+    "adventure":   180,
+    "sightseeing": 90,
 }
 
 
@@ -90,6 +133,13 @@ def _map_category(kinds: str) -> str:
     return "sightseeing"
 
 
+# Union of OpenTripMap top-level groups we want. interesting_places is the
+# default sightseeing bucket; foods adds restaurants/cafes; amusements adds
+# zoos/theme parks; cultural adds museums/galleries that aren't in
+# interesting_places.
+OTM_KINDS = "interesting_places,foods,amusements,cultural"
+
+
 def _fetch_places(lat: float, lng: float) -> list[dict[str, Any]]:
     """Call radius endpoint and return raw JSON list."""
     try:
@@ -99,7 +149,7 @@ def _fetch_places(lat: float, lng: float) -> list[dict[str, Any]]:
                 "lat": lat,
                 "lon": lng,
                 "radius": RADIUS_METERS,
-                "kinds": "interesting_places",
+                "kinds": OTM_KINDS,
                 "format": "json",
                 "limit": PLACES_PER_CITY,
                 "apikey": OTM_KEY,
@@ -108,9 +158,9 @@ def _fetch_places(lat: float, lng: float) -> list[dict[str, Any]]:
         )
         if resp.status_code == 200:
             return resp.json()
-        print(f"    ⚠ OTM status {resp.status_code}: {resp.text[:120]}")
+        print(f"    OTM status {resp.status_code}: {resp.text[:120]}")
     except Exception as e:
-        print(f"    ⚠ OTM request error: {e}")
+        print(f"    OTM request error: {e}")
     return []
 
 
@@ -130,19 +180,41 @@ def run_activities() -> None:
     print("[activities] Starting …")
     db = SessionLocal()
     try:
+        # Top N by popularity (raw population proxy)
         top_cities = (
             db.query(City)
             .order_by(City.popularity_score.desc())
             .limit(TOP_CITIES_LIMIT)
             .all()
         )
-        print(f"  Processing {len(top_cities)} cities …")
+
+        # Hard-include the tourist list — population rank misses Paris/Rome/etc.
+        tourist_rows: list[City] = []
+        for name, country in TOURIST_CITIES:
+            row = (
+                db.query(City)
+                .filter(City.name == name, City.country == country)
+                .first()
+            )
+            if row:
+                tourist_rows.append(row)
+
+        # Union; dedupe by id while preserving order (top-pop first, then tourist tail)
+        seen: set[int] = set()
+        cities: list[City] = []
+        for c in [*top_cities, *tourist_rows]:
+            if c.id in seen:
+                continue
+            seen.add(c.id)
+            cities.append(c)
+        print(f"  {len(cities)} cities to process ({len(top_cities)} top-pop + {len(tourist_rows)} tourist; {len(cities) - len(top_cities)} new)")
+        top_cities = cities
 
         all_rows: list[dict] = []
         seen_ids: set[int] = set()
 
         for idx, city in enumerate(top_cities, 1):
-            print(f"  [{idx:3}/{TOP_CITIES_LIMIT}] {city.name} ({city.country or ''}")
+            print(f"  [{idx:3}/{len(top_cities)}] {city.name} ({city.country or ''})")
             places = _fetch_places(city.lat, city.lng)
             time.sleep(SLEEP_BETWEEN_REQUESTS)
 
@@ -171,13 +243,14 @@ def run_activities() -> None:
                     if not raw_name:
                         continue  # skip unnamed places
 
+                    category = _map_category(kinds)
                     all_rows.append({
                         "id":               place_id,
                         "city_id":          city.id,
                         "name":             _safe_str(raw_name, 200),
-                        "category":         _map_category(kinds),
+                        "category":         category,
                         "avg_cost":         _estimate_cost(kinds),
-                        "avg_duration_min": 60,  # reasonable default
+                        "avg_duration_min": DURATION_BY_CATEGORY.get(category, 60),
                         "description":      description,
                     })
                 except Exception as e:
