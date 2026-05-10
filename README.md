@@ -1,171 +1,113 @@
-# Traveloop 🌍
+<div align="center">
 
-> Multi-city travel planning web app — built for the **Odoo Hackathon 2026** (8-hour build).
+<img src="https://api.iconify.design/lucide:database-zap.svg?color=%2306b6d4&width=72" width="72" alt="data" />
 
-[![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python%203.11-009688?style=flat-square)](https://fastapi.tiangolo.com/)
-[![Database](https://img.shields.io/badge/Database-PostgreSQL%2016-336791?style=flat-square)](https://postgresql.org/)
-[![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20Vite%20%2B%20TypeScript-61DAFB?style=flat-square)](https://vitejs.dev/)
+# Traveloop · `feat/data-admin`
 
----
+### Data engineering pipeline + admin analytics
 
-## What It Does
+Branch owner: **Harshal More** ([@HaRsH-2102](https://github.com/HaRsH-2102))
+Final integrated state: [**`main`**](../../tree/main)
 
-- 🗺️ Create **multi-city trips** broken into city sections with dates and budgets
-- 🎯 Add **activities** to each section (sightseeing, food, adventure, etc.)
-- 💸 Track **expenses** and generate **PDF invoices**
-- 🤖 **AI-powered** city recommendations and trip planning via Groq/Gemini
-- 🔍 **Semantic search** — find cities by natural language query using embeddings
-- 🌐 **Community feed** — share trips, comment, and like
-- 🛡️ **Admin analytics** — user stats, popular cities/activities, trends dashboard
+[![Branch](https://img.shields.io/badge/branch-feat%2Fdata--admin-714B67)]()
+[![Merged](https://img.shields.io/badge/merged_to-main-success)]()
+[![Cities seeded](https://img.shields.io/badge/cities-33%2C645-blue)]()
+[![Activities seeded](https://img.shields.io/badge/activity_templates-5%2C053-blue)]()
+
+</div>
 
 ---
 
-## Stack
+## What this branch contains
 
-| Layer | Technology |
-|---|---|
-| Backend API | Python 3.11 + FastAPI |
-| Database | PostgreSQL 16 (Docker) |
-| ORM | SQLAlchemy 2.0 + Alembic |
-| Auth | JWT (python-jose + passlib/bcrypt) |
-| AI / Embeddings | sentence-transformers `all-MiniLM-L6-v2` |
-| LLM | Groq (primary) + Google Gemini (fallback) |
-| PDF | WeasyPrint + Jinja2 |
-| Frontend | React + Vite + TypeScript + Tailwind + shadcn/ui |
-| Deploy | Vercel (frontend) + Render (backend) |
+The data layer and admin surface of Traveloop — what fills the otherwise-empty Postgres database with **real curated catalog data**, and exposes platform-wide analytics for admins.
+
+This branch was rebased onto `main` and merged. The work is now integrated into [main](../../tree/main); this branch is preserved for authorship traceability.
 
 ---
 
-## Quick Start
+## 📦 Deliverables
 
-### Prerequisites
-- Docker Desktop running
-- Python 3.11
-- Node.js 18+
+### 1. Seed pipeline — 5 idempotent scripts
 
-### Backend
-
-```powershell
-# 1. Start Postgres container (port 5433 to avoid Windows conflicts)
-docker-compose up -d
-
-# 2. Setup Python environment
-cd backend
-python -m venv .venv
-.venv\Scripts\Activate.ps1          # macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-
-# 3. Configure environment
-copy .env.example .env              # then edit keys (see below)
-
-# 4. Apply database schema
-alembic upgrade head
-
-# 5. Seed the database (run once, in order)
-python -m app.seed.cities           # 33,000+ world cities
-python -m app.seed.cost_index       # cost of living data
-python -m app.seed.activities       # ~4,000 activities via OpenTripMap
-python -m app.seed.photos           # city photos via Pexels
-python -m app.seed.embeddings       # AI embeddings for semantic search
-
-# 6. Start the API server
-uvicorn app.main:app --reload
-```
-
-Open **http://localhost:8000/docs** for the interactive API explorer.
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open **http://localhost:5173**.
-
----
-
-## Environment Variables
-
-Copy `.env.example` → `.env` and fill in:
-
-| Variable | Required | Where to get |
-|---|---|---|
-| `DATABASE_URL` | ✅ | `postgresql://traveloop:traveloop@127.0.0.1:5433/traveloop` |
-| `JWT_SECRET_KEY` | ✅ | Any random string |
-| `OPENTRIPMAP_KEY` | Seed | [opentripmap.io](https://opentripmap.io/product) — free |
-| `PEXELS_API_KEY` | Seed | [pexels.com/api](https://www.pexels.com/api/) — free |
-| `GROQ_API_KEY` | AI | [console.groq.com](https://console.groq.com) — free |
-| `GEMINI_API_KEY` | AI | [aistudio.google.com](https://aistudio.google.com) — free |
-
----
-
-## API Endpoints Overview
-
-| Prefix | Router | Description |
-|---|---|---|
-| `/auth` | auth.py | Register, login, get current user |
-| `/users` | users.py | User profile management |
-| `/trips` | trips.py | Full trip CRUD + copy + public slug |
-| `/sections` | sections.py | Trip sections (one per city) |
-| `/activities` | activities.py | Activities within a section |
-| `/cities` | cities.py | Browse, filter, semantic search |
-| `/expenses` | expenses.py | Expense tracking per trip/section |
-| `/packing` | packing.py | Packing checklist with toggle |
-| `/notes` | notes.py | Notes per trip/section |
-| `/community` | community.py | Posts, comments, likes |
-| `/ai` | ai.py | AI suggestions (Groq/Gemini) |
-| `/invoice` | invoice.py | PDF invoice generation |
-| `/admin` | admin.py | Analytics dashboard (admin only) |
-
----
-
-## Database — 16 Tables
-
-`users` · `cities` · `activity_templates` · `trips` · `trip_sections` · `trip_activities` · `expenses` · `invoices` · `invoice_items` · `packing_items` · `trip_notes` · `community_posts` · `community_comments` · `community_likes` · `saved_destinations` · `trip_copies`
-
-> 📖 Full schema, column names, and frozen contracts are documented in **[PROJECT_DOCS.md](./PROJECT_DOCS.md)**
-
----
-
-## Team & Contributions
-
-| Member | Branch | Owns | Status |
+| Script | Source | Output | Notes |
 |---|---|---|---|
-| Rupesh | `feat/core` | Core backend, all models, auth, trips, sections, activities, community, expenses, packing, notes, cities | ✅ Done |
-| Aniket | `feat/frontend` | Entire `frontend/` — React UI | 🔄 In Progress |
-| Harshal / Onkar | `feat/data-admin` | Seed pipeline (5 scripts, 33k+ cities, 4k activities, AI embeddings) + Admin analytics API (6 endpoints) | ✅ Done |
-| Onkar | `feat/ai-invoice` | AI trip suggestions, PDF invoice generation | 🔄 In Progress |
+| `app/seed/cities.py` | GeoNames `cities15000.zip` | **33,645** rows in `cities` | Bulk insert with `ON CONFLICT DO NOTHING`; populates `name, country, lat/lng, popularity_score` |
+| `app/seed/cost_index.py` | Numbeo Cost-of-Living-Index 2024 CSV | **27,866** cities (83%) updated with `cost_index` | RapidFuzz matches CSV country names to denormalised `cities.country` |
+| `app/seed/activities.py` | OpenTripMap radius API | **5,053** rows in `activity_templates` | Top-100 cities by population + 30 hand-picked tourist cities, 4 OpenTripMap kinds (`interesting_places, foods, amusements, cultural`) |
+| `app/seed/photos.py` | Pexels API + Wikipedia REST | **427** cities with `photo_url` | Pexels for top-200 (curated quality), Wikipedia fallback for the long tail with `ThreadPoolExecutor(8)` parallelism |
+| `app/seed/embeddings.py` | sentence-transformers `all-MiniLM-L6-v2` | **38,698** vectors stored as JSON-encoded text | Cosine similarity computed in Python at query time |
 
-### Branch rules
-- ✅ All changes go through Pull Requests into `main`
-- ❌ Never push directly to `main`
-- ❌ Never commit `.env` files
+Run it all:
+```bash
+python -m app.seed.run_all
+```
+Or step-by-step:
+```bash
+python -m app.seed.cities
+python -m app.seed.cost_index
+python -m app.seed.activities
+python -m app.seed.photos          # accepts --pexels-only / --wikimedia-only / --limit N
+python -m app.seed.embeddings
+```
+
+### 2. Cost-of-living dataset
+
+`backend/data/Cost_of_Living_Index_by_Country_2024.csv` — 122 countries · 12 KB. Drives the country-level cost index that gets fuzzy-matched onto every city.
+
+### 3. Admin endpoints — 6 routes
+
+All gated by `Depends(get_admin_user)` (403 if non-admin):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /admin/stats` | total_users · total_trips · trips_today · active_users_30d (active = created a trip in last 30d, since users.last_active doesn't exist) |
+| `GET /admin/popular/cities?limit=` | Top cities by `COUNT(trip_sections)` group-by |
+| `GET /admin/popular/activities?limit=` | Top activity templates by `COUNT(trip_activities)` |
+| `GET /admin/users` | Per-user trip count + last_active = MAX(trip.created_at) |
+| `GET /admin/trends?days=` | Trips created per day for the last N days |
+| `GET /admin/recent` | Most recently created trips (free-form dict response) |
 
 ---
 
-## What's Been Built (Harshal/Onkar — `feat/data-admin`)
+## 🏗️ Decisions
 
-### Phase 1 — Data Engineering
-- `backend/app/seed/cities.py` — Downloads GeoNames, seeds 33,645 cities with popularity scores
-- `backend/app/seed/cost_index.py` — Fuzzy-matches Numbeo CSV to update 27,866 cities with cost index
-- `backend/app/seed/activities.py` — Fetches 3,929 activities from OpenTripMap API
-- `backend/app/seed/photos.py` — Gets city photos for top 200 cities via Pexels API
-- `backend/app/seed/embeddings.py` — Generates 384-dim AI vectors for all cities and activities
-- `backend/data/Cost_of_Living_Index_by_Country_2024.csv` — Numbeo country-level dataset
-
-### Phase 2 — Admin Analytics
-- `backend/app/routers/admin.py` — 6 endpoints: `/stats`, `/popular/cities`, `/popular/activities`, `/users`, `/trends`, `/recent`
+- **Why Pexels + Wikipedia for photos?** Pexels free tier is 200 req/hr → only the top-200 cities get curated quality. Wikipedia REST (`/api/rest_v1/page/summary/{title}`) has no rate limit and covers the long tail. The combo gives ~2× the coverage of Pexels-only.
+- **Why store embeddings as JSON-text instead of `pgvector`?** Render's free Postgres tier doesn't have the `vector` extension. JSON-text in a `Text` column works on every Postgres deployment, and query-time cosine in Python is fast enough for our scale (~50ms over 2000 candidates).
+- **Why fuzzy-match cost index on country name?** Numbeo only publishes a country-level index, not city-level. RapidFuzz with `score_cutoff=80` catches "USA"/"United States" and "South Korea"/"Korea, Republic of" without false positives.
+- **Idempotency by design.** Every seed step uses `ON CONFLICT DO NOTHING` (Postgres) or filters by `IS NULL` for backfill. Re-running any step is safe.
 
 ---
 
-## Documentation
+## 📍 Files added on this branch
 
-For a complete guide covering every file, every endpoint, the database schema, frozen column contracts, common errors, and the full git workflow — see:
+```
+backend/app/seed/
+├─ cities.py           137 lines · GeoNames downloader + bulk insert
+├─ cost_index.py       149 lines · CSV fuzzy-match + UPDATE
+├─ activities.py       205 lines · OpenTripMap + tourist cities + category mapping
+├─ photos.py           181 lines · Pexels + parallel Wikipedia fallback
+├─ embeddings.py       100 lines · sentence-transformers + batched commit
+└─ run_all.py           49 lines · orchestrator with per-step timing
 
-### 📖 [PROJECT_DOCS.md](./PROJECT_DOCS.md)
+backend/app/routers/admin.py    183 lines · 6 endpoints (admin-gated)
+backend/data/Cost_of_Living_Index_by_Country_2024.csv    122 rows
+```
+
+Total: **8 new files · ~1,000 lines of Python · 1 dataset**.
 
 ---
 
-*Built with ❤️ for Odoo Hackathon 2026*
+## 🤝 Coordination with the team
+
+- **Frozen contract respected** — admin endpoints write against `app/schemas/admin.py` (defined by Rupesh) without modification: `AdminStats`, `PopularCity`, `PopularActivity`, `UserAdminView`, `TrendPoint`.
+- **No model changes** — admin queries use the existing `User`, `Trip`, `TripSection`, `City`, `ActivityTemplate` tables. `last_active` is computed on the fly from `MAX(trip.created_at)` rather than added as a column, since that would have un-frozen the `users` schema.
+- **No prefix double-up** — `admin.py` declares `APIRouter()` (no prefix); `main.py` adds `prefix="/admin"`.
+
+---
+
+<div align="center">
+
+[← Back to main](../../tree/main) · [Author commits](../../commits/feat/data-admin?author=HaRsH-2102)
+
+</div>
