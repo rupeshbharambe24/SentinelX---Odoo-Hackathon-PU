@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { BarChart3, Globe, MapPin, Wallet, TrendingUp, Calendar } from "lucide-react";
+import { useQuery, useQueries } from "@tanstack/react-query";
+import { Globe, Wallet, TrendingUp, Calendar, Shield } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { supabase } from "@/integrations/supabase/client";
+import { Badge } from "@/components/ui/badge";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/use-auth";
+import type { Section } from "./_app.trips.$tripId.builder";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid } from "recharts";
 
 export const Route = createFileRoute("/_app/analytics")({
@@ -16,38 +18,67 @@ const COLORS = [
   "oklch(0.7 0.15 145)", "oklch(0.65 0.18 25)", "oklch(0.7 0.13 270)",
 ];
 
+interface Trip {
+  id: string;
+  name: string;
+  description: string | null;
+  total_budget: number | null;
+  section_count: number;
+  status: string;
+  created_at: string;
+}
+
+interface AdminStats {
+  total_users: number;
+  total_trips: number;
+  trips_today: number;
+  active_users_30d: number;
+}
+
+interface PopularCity {
+  city_id: number;
+  name: string;
+  country: string | null;
+  visit_count: number;
+}
+
 function Analytics() {
   const { user } = useAuth();
 
   const { data: trips, isLoading: loadingTrips } = useQuery({
     queryKey: ["trips", "all", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("trips").select("*").order("created_at", { ascending: true });
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api<Trip[]>("/trips"),
   });
 
-  const { data: sections } = useQuery({
-    queryKey: ["all-sections", user?.id],
-    enabled: !!user && !!trips,
-    queryFn: async () => {
-      if (!trips?.length) return [];
-      const tripIds = trips.map((t) => t.id);
-      const { data, error } = await supabase.from("trip_sections").select("*, activities(*)").in("trip_id", tripIds);
-      if (error) throw error;
-      return data as Array<{
-        id: string; trip_id: string; name: string;
-        activities: Array<{ id: string; category: string | null; cost: number | null }>;
-      }>;
-    },
+  // Fetch sections+activities per trip in parallel.
+  const sectionResults = useQueries({
+    queries: (trips ?? []).map((t) => ({
+      queryKey: ["sections", t.id],
+      queryFn: () => api<Section[]>(`/sections/by-trip/${t.id}`),
+    })),
+  });
+  const sectionsByTrip: Record<string, Section[]> = {};
+  (trips ?? []).forEach((t, idx) => {
+    sectionsByTrip[t.id] = sectionResults[idx]?.data ?? [];
   });
 
-  const allActivities = (sections ?? []).flatMap((s) => s.activities);
+  // Admin-only data — only fetched if the user is_admin.
+  const { data: adminStats } = useQuery({
+    queryKey: ["admin", "stats"],
+    enabled: !!user?.is_admin,
+    queryFn: () => api<AdminStats>("/admin/stats"),
+  });
+  const { data: popularCities } = useQuery({
+    queryKey: ["admin", "popular-cities"],
+    enabled: !!user?.is_admin,
+    queryFn: () => api<PopularCity[]>("/admin/popular/cities", { query: { limit: 8 } }),
+  });
+
+  const allActivities = Object.values(sectionsByTrip).flatMap((ss) => ss.flatMap((s) => s.activities));
   const totalSpent = allActivities.reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
-  const totalBudget = (trips ?? []).reduce((sum, t) => sum + Number(t.budget ?? 0), 0);
-  const uniqueDestinations = new Set((trips ?? []).map((t) => t.destination).filter(Boolean)).size;
+  const totalBudget = (trips ?? []).reduce((sum, t) => sum + Number(t.total_budget ?? 0), 0);
+  const uniqueDestinations = new Set((trips ?? []).map((t) => t.description).filter(Boolean)).size;
 
   // By category
   const byCategory = allActivities.reduce<Record<string, number>>((acc, a) => {
@@ -57,23 +88,23 @@ function Analytics() {
   }, {});
   const pieData = Object.entries(byCategory).map(([name, value]) => ({ name, value }));
 
-  // By trip (bar chart)
+  // By trip
   const barData = (trips ?? []).map((t) => {
-    const tripSections = (sections ?? []).filter((s) => s.trip_id === t.id);
-    const spent = tripSections.flatMap((s) => s.activities).reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
+    const sec = sectionsByTrip[t.id] ?? [];
+    const spent = sec.flatMap((s) => s.activities).reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
     return {
-      name: t.title.length > 15 ? t.title.slice(0, 15) + "…" : t.title,
+      name: t.name.length > 15 ? t.name.slice(0, 15) + "…" : t.name,
       spent,
-      budget: Number(t.budget ?? 0),
+      budget: Number(t.total_budget ?? 0),
     };
   });
 
-  // Monthly trend (line chart)
+  // Monthly trend
   const monthlyData = (trips ?? []).reduce<Record<string, number>>((acc, t) => {
     if (t.created_at) {
-      const month = t.created_at.slice(0, 7); // YYYY-MM
-      const tripSections = (sections ?? []).filter((s) => s.trip_id === t.id);
-      const spent = tripSections.flatMap((s) => s.activities).reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
+      const month = t.created_at.slice(0, 7);
+      const sec = sectionsByTrip[t.id] ?? [];
+      const spent = sec.flatMap((s) => s.activities).reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
       acc[month] = (acc[month] ?? 0) + spent;
     }
     return acc;
@@ -86,6 +117,42 @@ function Analytics() {
         <h1 className="font-display text-3xl font-bold">Analytics</h1>
         <p className="text-sm text-muted-foreground">Overview of your travel stats and spending.</p>
       </div>
+
+      {/* Admin-only top section */}
+      {user?.is_admin && (
+        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 shadow-soft space-y-4">
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4 text-primary" />
+            <h2 className="font-display text-sm font-semibold">Platform Admin</h2>
+            <Badge variant="secondary" className="text-[10px]">admin only</Badge>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {adminStats && [
+              { label: "Total users", value: adminStats.total_users },
+              { label: "Total trips", value: adminStats.total_trips },
+              { label: "Trips today", value: adminStats.trips_today },
+              { label: "Active 30d", value: adminStats.active_users_30d },
+            ].map((s) => (
+              <div key={s.label} className="rounded-xl border border-border bg-card p-3">
+                <div className="text-xs text-muted-foreground">{s.label}</div>
+                <div className="font-display text-lg font-bold">{s.value}</div>
+              </div>
+            ))}
+          </div>
+          {popularCities && popularCities.length > 0 && (
+            <div>
+              <div className="text-xs font-medium mb-2">Most popular cities</div>
+              <div className="flex flex-wrap gap-1.5">
+                {popularCities.map((c) => (
+                  <Badge key={c.city_id} variant="secondary" className="text-[10px]">
+                    {c.name} {c.country ? `· ${c.country}` : ""} <span className="ml-1 opacity-70">×{c.visit_count}</span>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {loadingTrips ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -178,7 +245,7 @@ function Analytics() {
                 <thead>
                   <tr className="border-b border-border bg-muted/50">
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Trip</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Destination</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Notes</th>
                     <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Budget</th>
                     <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Spent</th>
                     <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Stops</th>
@@ -186,15 +253,15 @@ function Analytics() {
                 </thead>
                 <tbody>
                   {(trips ?? []).map((t) => {
-                    const tripSections = (sections ?? []).filter((s) => s.trip_id === t.id);
-                    const spent = tripSections.flatMap((s) => s.activities).reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
+                    const sec = sectionsByTrip[t.id] ?? [];
+                    const spent = sec.flatMap((s) => s.activities).reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
                     return (
                       <tr key={t.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-base">
-                        <td className="px-4 py-2.5 font-medium">{t.title}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground">{t.destination ?? "—"}</td>
-                        <td className="px-4 py-2.5 text-right">${Number(t.budget ?? 0).toFixed(0)}</td>
+                        <td className="px-4 py-2.5 font-medium">{t.name}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{t.description ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-right">${Number(t.total_budget ?? 0).toFixed(0)}</td>
                         <td className="px-4 py-2.5 text-right font-medium text-primary">${spent.toFixed(0)}</td>
-                        <td className="px-4 py-2.5 text-right">{tripSections.length}</td>
+                        <td className="px-4 py-2.5 text-right">{t.section_count}</td>
                       </tr>
                     );
                   })}
@@ -207,3 +274,4 @@ function Analytics() {
     </div>
   );
 }
+

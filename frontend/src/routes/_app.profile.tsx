@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { TripCard } from "@/components/trip-card";
-import { supabase } from "@/integrations/supabase/client";
+import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/use-auth";
 import { toast } from "sonner";
 
@@ -21,6 +21,17 @@ export const Route = createFileRoute("/_app/profile")({
 const EXPLORATION_STYLES = ["Relaxed", "Adventurous", "Cultural", "Foodie", "Budget", "Luxury"];
 const DESTINATION_PREFS = ["Beach", "Mountains", "City", "Countryside", "Desert", "Arctic", "Islands", "Jungle"];
 
+interface Trip {
+  id: string;
+  name: string;
+  description: string | null;
+  cover_photo_url: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  total_budget: number | null;
+  status: "ongoing" | "upcoming" | "completed" | "draft";
+}
+
 function Profile() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -28,47 +39,43 @@ function Profile() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
 
-  const { data: profile } = useQuery({
-    queryKey: ["profile", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("*").eq("id", user!.id).single();
-      return data;
-    },
-  });
-
   const { data: trips, isLoading } = useQuery({
     queryKey: ["trips", "all", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("trips").select("*").order("start_date", { ascending: false });
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api<Trip[]>("/trips", { query: { sort: "-start_date" } }),
   });
 
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const preplanned = (trips ?? []).filter((t) => !t.end_date || new Date(t.end_date) >= today);
-  const previous = (trips ?? []).filter((t) => t.end_date && new Date(t.end_date) < today);
+  const preplanned = (trips ?? []).filter((t) => t.status !== "completed");
+  const previous = (trips ?? []).filter((t) => t.status === "completed");
 
-  const initials = (profile?.full_name ?? user?.email ?? "U").slice(0, 2).toUpperCase();
-  const f = (key: string) => form[key] ?? (profile as Record<string, unknown>)?.[key] ?? "";
+  const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim();
+  const initials = (fullName || user?.email || "U").slice(0, 2).toUpperCase();
+  const f = (key: string) => form[key] ?? (user as Record<string, unknown> | null)?.[key] ?? "";
   const set = (key: string, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
 
   const handleSave = async () => {
+    if (!user) return;
     setSaving(true);
-    const { error } = await supabase.from("profiles").update({
-      full_name: (form.full_name ?? profile?.full_name ?? "").trim() || profile?.full_name,
-      phone: (form.phone ?? profile?.phone ?? "").trim() || null,
-      city: (form.city ?? profile?.city ?? "").trim() || null,
-      country: (form.country ?? profile?.country ?? "").trim() || null,
-    }).eq("id", user!.id);
-    setSaving(false);
-    if (error) { toast.error(error.message); return; }
-    qc.invalidateQueries({ queryKey: ["profile", user?.id] });
-    setEditing(false);
-    setForm({});
-    toast.success("Profile updated!");
+    try {
+      await api("/users/me/profile", {
+        method: "PUT",
+        body: {
+          first_name: (form.first_name ?? user.first_name ?? "").trim() || user.first_name,
+          last_name: (form.last_name ?? user.last_name ?? "").trim() || user.last_name,
+          phone: (form.phone ?? user.phone ?? "").trim() || null,
+          city: (form.city ?? user.city ?? "").trim() || null,
+          country: (form.country ?? user.country ?? "").trim() || null,
+        },
+      });
+      qc.invalidateQueries({ queryKey: ["auth", "me"] });
+      setEditing(false);
+      setForm({});
+      toast.success("Profile updated!");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.detail : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -79,14 +86,14 @@ function Profile() {
             <AvatarFallback className="bg-white/20 text-2xl font-semibold">{initials}</AvatarFallback>
           </Avatar>
           <div className="flex-1">
-            <h1 className="font-display text-3xl font-bold">{profile?.full_name ?? "Traveler"}</h1>
+            <h1 className="font-display text-3xl font-bold">{fullName || "Traveler"}</h1>
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-white/85">
-              {profile?.email && <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" /> {profile.email}</span>}
-              {profile?.phone && <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" /> {profile.phone}</span>}
-              {(profile?.city || profile?.country) && (
+              {user?.email && <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" /> {user.email}</span>}
+              {user?.phone && <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" /> {user.phone}</span>}
+              {(user?.city || user?.country) && (
                 <span className="flex items-center gap-1.5">
                   <MapPin className="h-3.5 w-3.5" />
-                  {[profile.city, profile.country].filter(Boolean).join(", ")}
+                  {[user.city, user.country].filter(Boolean).join(", ")}
                 </span>
               )}
             </div>
@@ -121,12 +128,16 @@ function Profile() {
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label>Full Name</Label>
-            <Input value={f("full_name") as string} onChange={(e) => set("full_name", e.target.value)} disabled={!editing} />
+            <Label>First name</Label>
+            <Input value={f("first_name") as string} onChange={(e) => set("first_name", e.target.value)} disabled={!editing} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Last name</Label>
+            <Input value={f("last_name") as string} onChange={(e) => set("last_name", e.target.value)} disabled={!editing} />
           </div>
           <div className="space-y-1.5">
             <Label>Email</Label>
-            <Input value={profile?.email ?? ""} disabled className="opacity-60" />
+            <Input value={user?.email ?? ""} disabled className="opacity-60" />
           </div>
           <div className="space-y-1.5">
             <Label>Phone</Label>
