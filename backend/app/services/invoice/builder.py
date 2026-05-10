@@ -88,6 +88,18 @@ def build_invoice_from_expenses(
 
     expenses = db.query(Expense).filter(Expense.trip_id == trip_id).all()
 
+    # Refuse to build an invoice from mixed-currency expenses — totals would be
+    # nonsense (USD + INR + EUR summed as raw numbers). Caller can convert
+    # currencies first or split into multiple invoices.
+    currencies = {(e.currency or "USD").upper() for e in expenses}
+    if len(currencies) > 1:
+        raise ValueError(
+            f"Trip {trip_id} has expenses in multiple currencies "
+            f"({sorted(currencies)}). Convert to a single currency before "
+            "generating an invoice."
+        )
+    currency = currencies.pop() if currencies else "USD"
+
     # Group by category
     grouped: dict[str, List] = defaultdict(list)
     for exp in expenses:
@@ -153,6 +165,7 @@ def build_invoice_from_expenses(
             "trip_name": trip.name,
             "destination": destination,
             "travel_dates": travel_dates,
+            "currency": currency,
         },
     )
     logger.info(

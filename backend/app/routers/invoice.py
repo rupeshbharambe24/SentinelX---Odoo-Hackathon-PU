@@ -155,7 +155,10 @@ def get_invoice(
         return _orm_invoice_to_data(inv)
 
     # Auto-generate + persist
-    invoice_data = build_invoice_from_expenses(trip_id, db)
+    try:
+        invoice_data = build_invoice_from_expenses(trip_id, db)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     _persist_invoice(invoice_data, db)
     return invoice_data
 
@@ -174,7 +177,10 @@ def generate_invoice(
 ) -> InvoiceData:
     """Recomputes the invoice from scratch using latest expense data and persists it."""
     _get_trip_or_404(trip_id, user.id, db)
-    invoice_data = build_invoice_from_expenses(trip_id, db)
+    try:
+        invoice_data = build_invoice_from_expenses(trip_id, db)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     _persist_invoice(invoice_data, db)
     return invoice_data
 
@@ -197,12 +203,15 @@ def update_invoice(
     tax = payload.tax_percent
     discount = payload.discount
 
-    invoice_data = build_invoice_from_expenses(
-        trip_id,
-        db,
-        tax_percent=tax if tax is not None else 5.0,
-        discount=discount if discount is not None else 0.0,
-    )
+    try:
+        invoice_data = build_invoice_from_expenses(
+            trip_id,
+            db,
+            tax_percent=tax if tax is not None else 5.0,
+            discount=discount if discount is not None else 0.0,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     existing = db.query(Invoice).filter(Invoice.trip_id == trip_id).first()
     if existing:
