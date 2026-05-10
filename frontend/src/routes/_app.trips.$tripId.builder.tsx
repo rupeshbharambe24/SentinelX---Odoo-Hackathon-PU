@@ -28,7 +28,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { TripSubNav } from "@/components/trip-sub-nav";
-import { supabase } from "@/integrations/supabase/client";
+import { api, ApiError } from "@/lib/api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/trips/$tripId/builder")({
@@ -36,15 +36,41 @@ export const Route = createFileRoute("/_app/trips/$tripId/builder")({
   component: Builder,
 });
 
-type Section = {
-  id: string; trip_id: string; name: string; city: string | null;
-  start_date: string | null; end_date: string | null; budget: number | null; position: number;
-};
+interface Trip {
+  id: string;
+  name: string;
+  description: string | null;
+  start_date: string | null;
+  end_date: string | null;
+}
 
-type Activity = {
-  id: string; section_id: string; title: string; category: string | null;
-  cost: number | null; duration_hours: number | null; position: number;
-};
+export interface Activity {
+  id: string;
+  section_id: string;
+  template_id: number | null;
+  name: string;
+  category: string | null;
+  cost: number;
+  duration_min: number;
+  scheduled_at: string | null;
+  notes: string | null;
+  order_index: number;
+  next_activity_id: string | null;
+}
+
+export interface Section {
+  id: string;
+  trip_id: string;
+  city_id: number | null;
+  city_name: string | null;
+  title: string;
+  description: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  section_budget: number | null;
+  order_index: number;
+  activities: Activity[];
+}
 
 function Builder() {
   const { tripId } = Route.useParams();
@@ -52,36 +78,25 @@ function Builder() {
 
   const { data: trip } = useQuery({
     queryKey: ["trip", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("trips").select("*").eq("id", tripId).single();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api<Trip>(`/trips/${tripId}`),
   });
 
   const { data: sections, isLoading } = useQuery({
     queryKey: ["sections", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("trip_sections")
-        .select("*")
-        .eq("trip_id", tripId)
-        .order("position");
-      if (error) throw error;
-      return data as Section[];
-    },
+    queryFn: () => api<Section[]>(`/sections/by-trip/${tripId}`),
   });
 
   const addSection = useMutation({
-    mutationFn: async () => {
-      const next = (sections?.length ?? 0);
-      const { error } = await supabase.from("trip_sections").insert({
-        trip_id: tripId,
-        name: `Stop ${next + 1}`,
-        position: next,
-        budget: 0,
+    mutationFn: () => {
+      const next = sections?.length ?? 0;
+      return api<Section>("/sections", {
+        method: "POST",
+        body: {
+          trip_id: tripId,
+          title: `Stop ${next + 1}`,
+          section_budget: 0,
+        },
       });
-      if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sections", tripId] });
@@ -91,13 +106,11 @@ function Builder() {
   });
 
   const reorder = useMutation({
-    mutationFn: async (newOrder: Section[]) => {
-      await Promise.all(
-        newOrder.map((s, i) =>
-          supabase.from("trip_sections").update({ position: i }).eq("id", s.id),
-        ),
-      );
-    },
+    mutationFn: (newOrder: Section[]) =>
+      api("/sections/reorder", {
+        method: "POST",
+        body: { trip_id: tripId, section_ids: newOrder.map((s) => s.id) },
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["sections", tripId] }),
   });
 
@@ -123,10 +136,10 @@ function Builder() {
           <Button asChild variant="ghost" size="sm" className="mb-2 -ml-2">
             <Link to="/trips"><ArrowLeft className="mr-1 h-4 w-4" /> All trips</Link>
           </Button>
-          <h1 className="font-display text-3xl font-bold">{trip?.title ?? "Itinerary"}</h1>
-          {trip?.destination && (
+          <h1 className="font-display text-3xl font-bold">{trip?.name ?? "Itinerary"}</h1>
+          {trip?.description && (
             <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-              <MapPin className="h-3.5 w-3.5" /> {trip.destination}
+              <MapPin className="h-3.5 w-3.5" /> {trip.description}
             </div>
           )}
         </div>
@@ -176,39 +189,24 @@ function SectionCard({ section }: { section: Section }) {
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const { data: activities } = useQuery({
-    queryKey: ["activities", section.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("activities")
-        .select("*")
-        .eq("section_id", section.id)
-        .order("position");
-      if (error) throw error;
-      return data as Activity[];
-    },
-  });
-
   const updateSection = useMutation({
-    mutationFn: async (patch: Partial<Section>) => {
-      const { error } = await supabase.from("trip_sections").update(patch).eq("id", section.id);
-      if (error) throw error;
-    },
+    mutationFn: (patch: Record<string, unknown>) =>
+      api(`/sections/${section.id}`, { method: "PUT", body: patch }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["sections", section.trip_id] }),
+    onError: (e: ApiError) => toast.error(e.detail),
   });
 
   const deleteSection = useMutation({
-    mutationFn: async () => {
-      await supabase.from("trip_sections").delete().eq("id", section.id);
-    },
+    mutationFn: () => api(`/sections/${section.id}`, { method: "DELETE" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sections", section.trip_id] });
       toast.success("Section removed");
     },
   });
 
-  const totalSpent = (activities ?? []).reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
-  const budget = Number(section.budget ?? 0);
+  const activities = section.activities;
+  const totalSpent = activities.reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
+  const budget = Number(section.section_budget ?? 0);
   const overBudget = budget > 0 && totalSpent > budget;
 
   return (
@@ -219,10 +217,10 @@ function SectionCard({ section }: { section: Section }) {
         </button>
         <div className="flex-1 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5 lg:col-span-2">
-            <Label className="text-xs">Section name</Label>
+            <Label className="text-xs">Section title</Label>
             <Input
-              defaultValue={section.name}
-              onBlur={(e) => e.target.value !== section.name && updateSection.mutate({ name: e.target.value })}
+              defaultValue={section.title}
+              onBlur={(e) => e.target.value !== section.title && updateSection.mutate({ title: e.target.value })}
               placeholder="City / Stop"
             />
           </div>
@@ -245,8 +243,8 @@ function SectionCard({ section }: { section: Section }) {
             <Label className="text-xs flex items-center gap-1"><Wallet className="h-3 w-3" /> Budget</Label>
             <Input
               type="number"
-              defaultValue={section.budget ?? ""}
-              onBlur={(e) => updateSection.mutate({ budget: e.target.value ? Number(e.target.value) : 0 })}
+              defaultValue={section.section_budget ?? ""}
+              onBlur={(e) => updateSection.mutate({ section_budget: e.target.value ? Number(e.target.value) : 0 })}
               placeholder="0"
             />
           </div>
@@ -257,15 +255,15 @@ function SectionCard({ section }: { section: Section }) {
       </div>
 
       <div className="space-y-2 p-4">
-        {(activities ?? []).length === 0 && (
+        {activities.length === 0 && (
           <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
             No activities yet — add one to get started.
           </div>
         )}
-        {(activities ?? []).map((a) => <ActivityRow key={a.id} activity={a} />)}
+        {activities.map((a) => <ActivityRow key={a.id} activity={a} tripId={section.trip_id} />)}
 
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-          <AddActivitySheet sectionId={section.id} nextPosition={(activities?.length ?? 0)} />
+          <AddActivitySheet sectionId={section.id} tripId={section.trip_id} />
           <div className="text-xs text-muted-foreground">
             Spent <span className={`font-medium ${overBudget ? "text-destructive" : "text-foreground"}`}>${totalSpent.toFixed(0)}</span>
             {budget > 0 && <> / <span className="text-foreground">${budget.toFixed(0)}</span></>}
@@ -277,22 +275,23 @@ function SectionCard({ section }: { section: Section }) {
   );
 }
 
-function ActivityRow({ activity }: { activity: Activity }) {
+function ActivityRow({ activity, tripId }: { activity: Activity; tripId: string }) {
   const qc = useQueryClient();
   const remove = useMutation({
-    mutationFn: async () => { await supabase.from("activities").delete().eq("id", activity.id); },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["activities", activity.section_id] }),
+    mutationFn: () => api(`/activities/${activity.id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sections", tripId] }),
   });
+  const durationHours = activity.duration_min ? (activity.duration_min / 60).toFixed(1) : null;
   return (
     <div className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
       <div className="grid h-8 w-8 place-items-center rounded-md bg-primary/10 text-primary">
         <Calendar className="h-3.5 w-3.5" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="truncate text-sm font-medium">{activity.title}</div>
+        <div className="truncate text-sm font-medium">{activity.name}</div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           {activity.category && <span>{activity.category}</span>}
-          {activity.duration_hours ? <span>{activity.duration_hours}h</span> : null}
+          {durationHours ? <span>{durationHours}h</span> : null}
         </div>
       </div>
       <div className="text-sm font-medium">${Number(activity.cost ?? 0).toFixed(0)}</div>
@@ -303,26 +302,31 @@ function ActivityRow({ activity }: { activity: Activity }) {
   );
 }
 
-function AddActivitySheet({ sectionId, nextPosition }: { sectionId: string; nextPosition: number }) {
+function AddActivitySheet({ sectionId, tripId }: { sectionId: string; tripId: string }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", category: "Sightseeing", cost: "", duration_hours: "1" });
+  const [form, setForm] = useState({ name: "", category: "sightseeing", cost: "", duration_min: "60" });
 
   const submit = async () => {
-    if (!form.title.trim()) { toast.error("Title required"); return; }
-    const { error } = await supabase.from("activities").insert({
-      section_id: sectionId,
-      title: form.title.trim(),
-      category: form.category,
-      cost: form.cost ? Number(form.cost) : 0,
-      duration_hours: form.duration_hours ? Number(form.duration_hours) : 1,
-      position: nextPosition,
-    });
-    if (error) { toast.error(error.message); return; }
-    qc.invalidateQueries({ queryKey: ["activities", sectionId] });
-    setForm({ title: "", category: "Sightseeing", cost: "", duration_hours: "1" });
-    setOpen(false);
-    toast.success("Activity added");
+    if (!form.name.trim()) { toast.error("Name required"); return; }
+    try {
+      await api("/activities", {
+        method: "POST",
+        body: {
+          section_id: sectionId,
+          name: form.name.trim(),
+          category: form.category,
+          cost: form.cost ? Number(form.cost) : 0,
+          duration_min: form.duration_min ? Number(form.duration_min) : 60,
+        },
+      });
+      qc.invalidateQueries({ queryKey: ["sections", tripId] });
+      setForm({ name: "", category: "sightseeing", cost: "", duration_min: "60" });
+      setOpen(false);
+      toast.success("Activity added");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.detail : "Could not add activity");
+    }
   };
 
   return (
@@ -339,8 +343,8 @@ function AddActivitySheet({ sectionId, nextPosition }: { sectionId: string; next
         </SheetHeader>
         <div className="mt-6 space-y-4 px-4">
           <div className="space-y-1.5">
-            <Label>Title</Label>
-            <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Visit Senso-ji Temple" />
+            <Label>Name</Label>
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Visit Senso-ji Temple" />
           </div>
           <div className="space-y-1.5">
             <Label>Category</Label>
@@ -349,7 +353,7 @@ function AddActivitySheet({ sectionId, nextPosition }: { sectionId: string; next
               onChange={(e) => setForm({ ...form, category: e.target.value })}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
-              {["Sightseeing", "Food", "Transport", "Lodging", "Adventure", "Shopping", "Other"].map((c) => (
+              {["sightseeing", "food", "adventure", "shopping", "nightlife", "relaxation", "transport"].map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
@@ -360,8 +364,8 @@ function AddActivitySheet({ sectionId, nextPosition }: { sectionId: string; next
               <Input type="number" min="0" value={form.cost} onChange={(e) => setForm({ ...form, cost: e.target.value })} placeholder="0" />
             </div>
             <div className="space-y-1.5">
-              <Label>Duration (h)</Label>
-              <Input type="number" min="0" step="0.5" value={form.duration_hours} onChange={(e) => setForm({ ...form, duration_hours: e.target.value })} />
+              <Label>Duration (min)</Label>
+              <Input type="number" min="0" step="15" value={form.duration_min} onChange={(e) => setForm({ ...form, duration_min: e.target.value })} />
             </div>
           </div>
           <Button onClick={submit} className="w-full">Add to itinerary</Button>
