@@ -41,15 +41,15 @@ function Landing() {
       </header>
 
       <section className="relative overflow-hidden">
-        <div className="mx-auto max-w-7xl px-4 pb-20 pt-12 sm:px-6 sm:pt-20">
+        <div className="mx-auto max-w-7xl px-4 pb-12 pt-8 sm:px-6 sm:pt-12">
           <div className="grid items-center gap-10 lg:grid-cols-2">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-primary shadow-soft">
                 <Sparkles className="h-3 w-3" /> AI-assisted itineraries
               </div>
               <h1 className="mt-5 font-display text-4xl font-bold leading-[1.05] tracking-tight sm:text-6xl">
-                Plan multi-city trips that actually
-                <span className="bg-gradient-hero bg-clip-text text-transparent"> flow.</span>
+                Plan multi-city trips that actually{" "}
+                <span className="text-primary">flow.</span>
               </h1>
               <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg">
                 Map every stop, budget every day, and pack smarter. Traveloop turns the chaos of group
@@ -86,7 +86,7 @@ function Landing() {
               <img
                 src="https://images.unsplash.com/photo-1500835556837-99ac94a94552?w=1200&q=80"
                 alt="Travel planning"
-                className="relative aspect-[4/5] w-full rounded-3xl object-cover shadow-card"
+                className="relative aspect-[4/3] max-h-[480px] w-full rounded-3xl object-cover shadow-card"
               />
             </div>
           </div>
