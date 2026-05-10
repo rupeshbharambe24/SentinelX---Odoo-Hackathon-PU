@@ -3,7 +3,6 @@ import { BarChart3, Compass, Globe, LayoutDashboard, LogOut, Map, Users, User as
 import { ThemeToggle } from "./theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/use-auth";
 import { toast } from "sonner";
 
@@ -18,13 +17,13 @@ const nav = [
 
 export function AppShell() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const path = useRouterState({ select: (s) => s.location.pathname });
 
   const initials = (user?.email ?? "U").slice(0, 2).toUpperCase();
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  const handleLogout = () => {
+    logout();
     toast.success("Signed out");
     navigate({ to: "/login" });
   };

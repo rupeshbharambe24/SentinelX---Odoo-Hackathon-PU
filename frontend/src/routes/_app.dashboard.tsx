@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TripCard } from "@/components/trip-card";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/use-auth";
 
 export const Route = createFileRoute("/_app/dashboard")({
@@ -13,40 +13,42 @@ export const Route = createFileRoute("/_app/dashboard")({
   component: Dashboard,
 });
 
-const REGIONS = [
-  { name: "Tokyo", country: "Japan", img: "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=600&q=80" },
-  { name: "Lisbon", country: "Portugal", img: "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?w=600&q=80" },
-  { name: "Bali", country: "Indonesia", img: "https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=600&q=80" },
-  { name: "Reykjavik", country: "Iceland", img: "https://images.unsplash.com/photo-1504829857797-ddff29c27927?w=600&q=80" },
-];
+interface Trip {
+  id: string;
+  name: string;
+  description: string | null;
+  cover_photo_url: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  total_budget: number | null;
+}
+
+interface City {
+  id: number;
+  name: string;
+  country: string | null;
+  photo_url: string | null;
+  popularity_score: number | null;
+}
 
 function Dashboard() {
   const { user } = useAuth();
 
-  const { data: profile } = useQuery({
-    queryKey: ["profile", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("*").eq("id", user!.id).single();
-      return data;
-    },
-  });
-
   const { data: trips, isLoading } = useQuery({
     queryKey: ["trips", "recent", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("trips")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(6);
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api<Trip[]>("/trips", { query: { sort: "-created_at" } }),
   });
 
-  const greeting = profile?.full_name?.split(" ")[0] || "there";
+  // Replaces the previous hardcoded REGIONS = [Tokyo/Lisbon/Bali/Reykjavik] mock.
+  // /cities/recommended returns top-12 by popularity_score from the seeded
+  // 33,645-city catalog.
+  const { data: regions } = useQuery({
+    queryKey: ["cities", "recommended"],
+    queryFn: () => api<City[]>("/cities/recommended", { query: { limit: 8 } }),
+  });
+
+  const greeting = user?.first_name || "there";
 
   return (
     <div className="space-y-10">
@@ -93,24 +95,30 @@ function Dashboard() {
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          {REGIONS.map((r) => (
-            <button
-              key={r.name}
+          {(regions ?? []).slice(0, 8).map((r) => (
+            <Link
+              key={r.id}
+              to="/explore"
               className="group relative aspect-[4/5] overflow-hidden rounded-2xl text-left text-white shadow-card hover-lift"
             >
-              <img
-                src={r.img}
-                alt={r.name}
-                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                loading="lazy"
-              />
+              {r.photo_url ? (
+                <img
+                  src={r.photo_url}
+                  alt={r.name}
+                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="h-full w-full bg-gradient-to-br from-primary/30 to-primary/60" />
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
               <div className="absolute bottom-3 left-3">
                 <div className="font-display text-base font-semibold">{r.name}</div>
-                <div className="text-xs text-white/80">{r.country}</div>
+                <div className="text-xs text-white/80">{r.country ?? ""}</div>
               </div>
-            </button>
+            </Link>
           ))}
+          {!regions && [0, 1, 2, 3].map((i) => <Skeleton key={i} className="aspect-[4/5] rounded-2xl" />)}
         </div>
       </section>
 
