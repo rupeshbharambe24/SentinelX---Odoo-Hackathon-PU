@@ -36,6 +36,11 @@ dist/
 .DS_Store
 Thumbs.db
 
+# AI / agent artifacts (never commit these)
+.claude/
+docs/
+TRAVELOOP_BUILD_PLAN.md
+
 # Logs
 *.log
 

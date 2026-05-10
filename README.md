@@ -4,21 +4,25 @@ Multi-city travel planning web app. Built for the Odoo Hackathon 2026.
 
 ## Stack
 
-- **Backend:** FastAPI + SQLAlchemy 2.0 + Postgres (SQLite fallback for dev)
+- **Backend:** FastAPI + SQLAlchemy 2.0 + PostgreSQL 16
 - **Frontend:** React + Vite + TypeScript + Tailwind + shadcn/ui
 - **AI:** Groq (primary) + Gemini (fallback)
 - **Deploy:** Vercel (frontend) + Render (backend)
 
+PostgreSQL is the only supported database. `docker-compose up -d` starts the Postgres container required for local dev.
+
 ## Quick start
 
 ```bash
+# Start Postgres
+docker-compose up -d
+
 # Backend
-docker-compose up -d                        # start postgres
 cd backend
 python -m venv .venv
-.venv\Scripts\activate                      # Windows PowerShell: .venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1                  # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-copy .env.example .env                      # then edit DATABASE_URL + secrets
+copy .env.example .env                      # then edit JWT_SECRET_KEY + AI keys
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
@@ -42,5 +46,3 @@ Open http://localhost:5173.
 | Member A | `feat/frontend` | entire `frontend/` |
 | Member C | `feat/data-admin` | seed scripts, admin endpoints |
 | Member D | `feat/ai-invoice` | AI services, invoice PDF |
-
-See [TRAVELOOP_BUILD_PLAN.md](TRAVELOOP_BUILD_PLAN.md) and [docs/superpowers/plans/](docs/superpowers/plans/) for details.
