@@ -6,65 +6,63 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TripSubNav } from "@/components/trip-sub-nav";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { format } from "date-fns";
+import type { Section } from "./_app.trips.$tripId.builder";
 
 export const Route = createFileRoute("/_app/trips/$tripId/overview")({
   head: () => ({ meta: [{ title: "Trip Overview — Traveloop" }] }),
   component: TripOverview,
 });
 
+interface TripDetail {
+  id: string;
+  name: string;
+  description: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  cover_photo_url: string | null;
+  total_budget: number | null;
+  status: string;
+  is_public: boolean;
+  public_slug: string | null;
+}
+
+interface PackingItem { id: string; trip_id: string; name: string; category: string; is_packed: boolean; }
+interface Note { id: string; trip_id: string; title: string | null; content: string | null; }
+
 function TripOverview() {
   const { tripId } = Route.useParams();
 
   const { data: trip } = useQuery({
     queryKey: ["trip", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("trips").select("*").eq("id", tripId).single();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api<TripDetail>(`/trips/${tripId}`),
   });
 
   const { data: sections, isLoading } = useQuery({
-    queryKey: ["itinerary", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("trip_sections").select("*, activities(*)").eq("trip_id", tripId).order("position");
-      if (error) throw error;
-      return data as Array<{
-        id: string; name: string; city: string | null; start_date: string | null;
-        end_date: string | null; budget: number | null; position: number;
-        activities: Array<{ id: string; title: string; category: string | null; cost: number | null; duration_hours: number | null }>;
-      }>;
-    },
+    queryKey: ["sections", tripId],
+    queryFn: () => api<Section[]>(`/sections/by-trip/${tripId}`),
   });
 
   const { data: packingItems } = useQuery({
     queryKey: ["packing", tripId],
-    queryFn: async () => {
-      const { data } = await supabase.from("packing_items").select("*").eq("trip_id", tripId);
-      return data ?? [];
-    },
+    queryFn: () => api<PackingItem[]>(`/trips/${tripId}/packing`),
   });
 
   const { data: notes } = useQuery({
     queryKey: ["notes", tripId],
-    queryFn: async () => {
-      const { data } = await supabase.from("trip_notes").select("*").eq("trip_id", tripId);
-      return data ?? [];
-    },
+    queryFn: () => api<Note[]>(`/trips/${tripId}/notes`),
   });
 
   const allActivities = (sections ?? []).flatMap((s) => s.activities);
   const totalSpent = allActivities.reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
-  const totalBudget = Number(trip?.budget ?? 0);
+  const totalBudget = Number(trip?.total_budget ?? 0);
   const budgetPct = totalBudget > 0 ? Math.min(100, (totalSpent / totalBudget) * 100) : 0;
 
   // Completeness score
   const checks = [
-    !!trip?.title,
-    !!trip?.destination,
+    !!trip?.name,
+    !!trip?.description,
     !!trip?.start_date,
     !!trip?.end_date,
     (sections?.length ?? 0) > 0,
@@ -86,10 +84,10 @@ function TripOverview() {
         <Button asChild variant="ghost" size="sm" className="mb-2 -ml-2">
           <Link to="/trips"><ArrowLeft className="mr-1 h-4 w-4" /> All trips</Link>
         </Button>
-        <h1 className="font-display text-3xl font-bold">{trip?.title ?? "Trip Overview"}</h1>
-        {trip?.destination && (
+        <h1 className="font-display text-3xl font-bold">{trip?.name ?? "Trip Overview"}</h1>
+        {trip?.description && (
           <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-            <MapPin className="h-3.5 w-3.5" /> {trip.destination}
+            <MapPin className="h-3.5 w-3.5" /> {trip.description}
           </div>
         )}
       </div>
@@ -101,12 +99,12 @@ function TripOverview() {
       ) : (
         <>
           {/* Hero Cover */}
-          {trip?.cover_image && (
+          {trip?.cover_photo_url && (
             <div className="relative overflow-hidden rounded-3xl shadow-card">
-              <img src={trip.cover_image} alt={trip.title} className="h-56 w-full object-cover sm:h-72" />
+              <img src={trip.cover_photo_url} alt={trip.name} className="h-56 w-full object-cover sm:h-72" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
               <div className="absolute bottom-5 left-5 right-5 text-white">
-                <h2 className="font-display text-2xl font-bold">{trip.title}</h2>
+                <h2 className="font-display text-2xl font-bold">{trip.name}</h2>
                 {trip.start_date && trip.end_date && (
                   <div className="mt-1 flex items-center gap-1 text-sm text-white/85">
                     <Calendar className="h-3.5 w-3.5" />
@@ -206,7 +204,7 @@ function TripOverview() {
                     <div className="flex-1 rounded-2xl border border-border bg-card p-4 shadow-soft">
                       <div className="flex items-start justify-between">
                         <div>
-                          <h4 className="font-display text-base font-semibold">{s.name}</h4>
+                          <h4 className="font-display text-base font-semibold">{s.title}</h4>
                           {s.start_date && (
                             <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                               <Calendar className="h-3 w-3" />
@@ -215,16 +213,16 @@ function TripOverview() {
                             </div>
                           )}
                         </div>
-                        {s.budget && s.budget > 0 && (
+                        {s.section_budget && s.section_budget > 0 && (
                           <Badge variant="outline" className="text-xs">
-                            <Wallet className="mr-1 h-3 w-3" />${Number(s.budget).toFixed(0)}
+                            <Wallet className="mr-1 h-3 w-3" />${Number(s.section_budget).toFixed(0)}
                           </Badge>
                         )}
                       </div>
                       {s.activities.length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-1.5">
                           {s.activities.slice(0, 5).map((a) => (
-                            <Badge key={a.id} variant="secondary" className="text-[10px]">{a.title}</Badge>
+                            <Badge key={a.id} variant="secondary" className="text-[10px]">{a.name}</Badge>
                           ))}
                           {s.activities.length > 5 && <Badge variant="secondary" className="text-[10px]">+{s.activities.length - 5} more</Badge>}
                         </div>

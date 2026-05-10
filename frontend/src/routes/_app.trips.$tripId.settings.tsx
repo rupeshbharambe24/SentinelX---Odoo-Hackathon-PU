@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { TripSubNav } from "@/components/trip-sub-nav";
-import { supabase } from "@/integrations/supabase/client";
+import { api, ApiError } from "@/lib/api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/trips/$tripId/settings")({
@@ -33,11 +33,16 @@ function TripSettings() {
 
   const { data: trip, isLoading } = useQuery({
     queryKey: ["trip", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("trips").select("*").eq("id", tripId).single();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      api<{
+        id: string;
+        name: string;
+        description: string | null;
+        cover_photo_url: string | null;
+        start_date: string | null;
+        end_date: string | null;
+        total_budget: number | null;
+      }>(`/trips/${tripId}`),
   });
 
   const [form, setForm] = useState<Record<string, string>>({});
@@ -48,27 +53,33 @@ function TripSettings() {
 
   const handleSave = async () => {
     setSaving(true);
-    const { error } = await supabase.from("trips").update({
-      title: (form.title ?? trip?.title ?? "").trim() || trip?.title,
-      destination: (form.destination ?? trip?.destination ?? "").trim() || null,
-      description: (form.description ?? trip?.description ?? "").trim() || null,
-      cover_image: form.cover_image ?? trip?.cover_image,
-      start_date: (form.start_date ?? trip?.start_date ?? "") || null,
-      end_date: (form.end_date ?? trip?.end_date ?? "") || null,
-      budget: form.budget !== undefined ? Number(form.budget) || 0 : (trip?.budget ?? 0),
-    }).eq("id", tripId);
-    setSaving(false);
-    if (error) { toast.error(error.message); return; }
-    qc.invalidateQueries({ queryKey: ["trip", tripId] });
-    qc.invalidateQueries({ queryKey: ["trips"] });
-    toast.success("Trip updated!");
+    try {
+      await api(`/trips/${tripId}`, {
+        method: "PUT",
+        body: {
+          name: (form.name ?? trip?.name ?? "").trim() || trip?.name,
+          description: (form.description ?? trip?.description ?? "").trim() || null,
+          cover_photo_url: form.cover_photo_url ?? trip?.cover_photo_url,
+          start_date: (form.start_date ?? trip?.start_date ?? "") || null,
+          end_date: (form.end_date ?? trip?.end_date ?? "") || null,
+          total_budget:
+            form.total_budget !== undefined
+              ? Number(form.total_budget) || 0
+              : trip?.total_budget ?? 0,
+        },
+      });
+      qc.invalidateQueries({ queryKey: ["trip", tripId] });
+      qc.invalidateQueries({ queryKey: ["trips"] });
+      toast.success("Trip updated!");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.detail : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const deleteTrip = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.from("trips").delete().eq("id", tripId);
-      if (error) throw error;
-    },
+    mutationFn: () => api(`/trips/${tripId}`, { method: "DELETE" }),
     onSuccess: () => {
       toast.success("Trip deleted");
       navigate({ to: "/trips" });
@@ -76,7 +87,7 @@ function TripSettings() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const selectedCover = f("cover_image") as string;
+  const selectedCover = f("cover_photo_url") as string;
 
   return (
     <div className="space-y-6">
@@ -85,8 +96,8 @@ function TripSettings() {
           <Link to="/trips"><ArrowLeft className="mr-1 h-4 w-4" /> All trips</Link>
         </Button>
         <h1 className="font-display text-3xl font-bold">Trip Settings</h1>
-        {trip?.destination && (
-          <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" /> {trip.destination}</div>
+        {trip?.description && (
+          <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" /> {trip.description}</div>
         )}
       </div>
 
@@ -106,7 +117,7 @@ function TripSettings() {
             </div>
             <div className="flex flex-wrap gap-2">
               {COVERS.map((c) => (
-                <button key={c} type="button" onClick={() => set("cover_image", c)}
+                <button key={c} type="button" onClick={() => set("cover_photo_url", c)}
                   className={`h-12 w-20 overflow-hidden rounded-md border-2 transition-base ${selectedCover === c ? "border-primary shadow-soft" : "border-transparent opacity-70 hover:opacity-100"}`}>
                   <img src={c} alt="" className="h-full w-full object-cover" />
                 </button>
@@ -114,13 +125,8 @@ function TripSettings() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="title">Trip title</Label>
-              <Input id="title" value={f("title") as string} onChange={(e) => set("title", e.target.value)} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="destination">Primary destination</Label>
-              <Input id="destination" value={f("destination") as string} onChange={(e) => set("destination", e.target.value)} placeholder="Bangkok, Bali, Tokyo…" />
+              <Label htmlFor="name">Trip name</Label>
+              <Input id="name" value={f("name") as string} onChange={(e) => set("name", e.target.value)} />
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -133,8 +139,8 @@ function TripSettings() {
                 <Input id="end_date" type="date" value={f("end_date") as string} onChange={(e) => set("end_date", e.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="budget">Budget (USD)</Label>
-                <Input id="budget" type="number" min="0" step="50" value={f("budget") as string} onChange={(e) => set("budget", e.target.value)} />
+                <Label htmlFor="total_budget">Budget (USD)</Label>
+                <Input id="total_budget" type="number" min="0" step="50" value={f("total_budget") as string} onChange={(e) => set("total_budget", e.target.value)} />
               </div>
             </div>
 
@@ -159,7 +165,7 @@ function TripSettings() {
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                  <AlertDialogDescription>This action cannot be undone. All data for "{trip?.title}" will be permanently deleted.</AlertDialogDescription>
+                  <AlertDialogDescription>This action cannot be undone. All data for "{trip?.name}" will be permanently deleted.</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>

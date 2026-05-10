@@ -4,47 +4,39 @@ import { ArrowLeft, ArrowDown, Calendar, MapPin, Pencil, Wallet } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { TripSubNav } from "@/components/trip-sub-nav";
 import { format } from "date-fns";
+import type { Section } from "./_app.trips.$tripId.builder";
 
 export const Route = createFileRoute("/_app/trips/$tripId/itinerary")({
   head: () => ({ meta: [{ title: "Itinerary — Traveloop" }] }),
   component: ItineraryView,
 });
 
+interface TripDetail {
+  id: string;
+  name: string;
+  description: string | null;
+  total_budget: number | null;
+}
+
 function ItineraryView() {
   const { tripId } = Route.useParams();
 
   const { data: trip } = useQuery({
     queryKey: ["trip", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("trips").select("*").eq("id", tripId).single();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api<TripDetail>(`/trips/${tripId}`),
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["itinerary", tripId],
-    queryFn: async () => {
-      const { data: sections, error } = await supabase
-        .from("trip_sections")
-        .select("*, activities(*)")
-        .eq("trip_id", tripId)
-        .order("position");
-      if (error) throw error;
-      return sections as Array<{
-        id: string; name: string; city: string | null; start_date: string | null;
-        end_date: string | null; budget: number | null; position: number;
-        activities: Array<{ id: string; title: string; category: string | null; cost: number | null; duration_hours: number | null }>;
-      }>;
-    },
+    queryKey: ["sections", tripId],
+    queryFn: () => api<Section[]>(`/sections/by-trip/${tripId}`),
   });
 
   const allActivities = (data ?? []).flatMap((s) => s.activities);
   const totalSpent = allActivities.reduce((sum, a) => sum + Number(a.cost ?? 0), 0);
-  const totalBudget = Number(trip?.budget ?? 0);
+  const totalBudget = Number(trip?.total_budget ?? 0);
   const pct = totalBudget > 0 ? Math.min(100, (totalSpent / totalBudget) * 100) : 0;
 
   return (
@@ -54,10 +46,10 @@ function ItineraryView() {
           <Button asChild variant="ghost" size="sm" className="mb-2 -ml-2">
             <Link to="/trips"><ArrowLeft className="mr-1 h-4 w-4" /> All trips</Link>
           </Button>
-          <h1 className="font-display text-3xl font-bold">{trip?.title ?? "Itinerary"}</h1>
-          {trip?.destination && (
+          <h1 className="font-display text-3xl font-bold">{trip?.name ?? "Itinerary"}</h1>
+          {trip?.description && (
             <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-              <MapPin className="h-3.5 w-3.5" /> {trip.destination}
+              <MapPin className="h-3.5 w-3.5" /> {trip.description}
             </div>
           )}
         </div>
@@ -112,7 +104,7 @@ function ItineraryView() {
                   {idx + 1}
                 </div>
                 <div className="flex-1">
-                  <h2 className="font-display text-xl font-semibold">{s.name}</h2>
+                  <h2 className="font-display text-xl font-semibold">{s.title}</h2>
                   {(s.start_date || s.end_date) && (
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Calendar className="h-3 w-3" />
@@ -138,10 +130,10 @@ function ItineraryView() {
                               <Calendar className="h-4 w-4" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-medium">{a.title}</div>
+                              <div className="font-medium">{a.name}</div>
                               <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-muted-foreground">
                                 {a.category && <span className="rounded-full bg-muted px-2 py-0.5">{a.category}</span>}
-                                {a.duration_hours ? <span>{a.duration_hours}h</span> : null}
+                                {a.duration_min ? <span>{(a.duration_min / 60).toFixed(1)}h</span> : null}
                               </div>
                             </div>
                           </div>
