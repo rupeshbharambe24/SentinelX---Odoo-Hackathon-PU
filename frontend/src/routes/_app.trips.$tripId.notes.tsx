@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TripSubNav } from "@/components/trip-sub-nav";
-import { supabase } from "@/integrations/supabase/client";
+import { api, ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_app/trips/$tripId/notes")({
   component: TripNotes,
 });
 
-type Note = { id: string; trip_id: string; title: string; content: string | null; created_at: string; updated_at: string };
+type Note = { id: string; trip_id: string; title: string | null; content: string | null; created_at: string; updated_at: string };
 
 function TripNotes() {
   const { tripId } = Route.useParams();
@@ -29,31 +29,22 @@ function TripNotes() {
 
   const { data: trip } = useQuery({
     queryKey: ["trip", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("trips").select("*").eq("id", tripId).single();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api<{ name: string; description: string | null }>(`/trips/${tripId}`),
   });
 
   const { data: notes, isLoading } = useQuery({
     queryKey: ["notes", tripId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("trip_notes").select("*").eq("trip_id", tripId).order("updated_at", { ascending: false });
-      if (error) throw error;
-      return data as Note[];
-    },
+    queryFn: () => api<Note[]>(`/trips/${tripId}/notes`),
   });
 
   const saveNote = useMutation({
     mutationFn: async () => {
       if (!formTitle.trim()) throw new Error("Title required");
+      const body = { title: formTitle.trim(), content: formContent.trim() || null };
       if (editId) {
-        const { error } = await supabase.from("trip_notes").update({ title: formTitle.trim(), content: formContent.trim() || null }).eq("id", editId);
-        if (error) throw error;
+        await api(`/notes/${editId}`, { method: "PUT", body });
       } else {
-        const { error } = await supabase.from("trip_notes").insert({ trip_id: tripId, title: formTitle.trim(), content: formContent.trim() || null });
-        if (error) throw error;
+        await api("/notes", { method: "POST", body: { trip_id: tripId, ...body } });
       }
     },
     onSuccess: () => {
@@ -61,11 +52,12 @@ function TripNotes() {
       resetForm();
       toast.success(editId ? "Note updated" : "Note created");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) =>
+      toast.error(e instanceof ApiError ? e.detail : e instanceof Error ? e.message : "Save failed"),
   });
 
   const deleteNote = useMutation({
-    mutationFn: async (id: string) => { await supabase.from("trip_notes").delete().eq("id", id); },
+    mutationFn: (id: string) => api(`/notes/${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["notes", tripId] }); toast.success("Note deleted"); },
   });
 
@@ -81,9 +73,9 @@ function TripNotes() {
         <Button asChild variant="ghost" size="sm" className="mb-2 -ml-2">
           <Link to="/trips"><ArrowLeft className="mr-1 h-4 w-4" /> All trips</Link>
         </Button>
-        <h1 className="font-display text-3xl font-bold">{trip?.title ?? "Trip Notes"}</h1>
-        {trip?.destination && (
-          <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" /> {trip.destination}</div>
+        <h1 className="font-display text-3xl font-bold">{trip?.name ?? "Trip Notes"}</h1>
+        {trip?.description && (
+          <div className="mt-1 flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" /> {trip.description}</div>
         )}
       </div>
 
