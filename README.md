@@ -43,6 +43,6 @@ Open http://localhost:5173.
 | Member | Branch | Owns |
 |--------|--------|------|
 | Rupesh | `feat/core` | core backend, integration |
-| Member A | `feat/frontend` | entire `frontend/` |
-| Member C | `feat/data-admin` | seed scripts, admin endpoints |
-| Member D | `feat/ai-invoice` | AI services, invoice PDF |
+| Aniket | `feat/frontend` | entire `frontend/` |
+| Harshal | `feat/data-admin` | seed scripts, admin endpoints |
+| Onkar | `feat/ai-invoice` | AI services, invoice PDF |
