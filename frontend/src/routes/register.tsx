@@ -7,7 +7,8 @@ import { Compass, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/use-auth";
+import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/register")({
@@ -16,18 +17,19 @@ export const Route = createFileRoute("/register")({
 });
 
 const schema = z.object({
-  full_name: z.string().trim().min(2, "Required").max(80),
+  first_name: z.string().trim().min(1, "Required").max(100),
+  last_name: z.string().trim().min(1, "Required").max(100),
   email: z.string().trim().email("Invalid email").max(255),
-  password: z.string().min(8, "Min 8 characters").max(72),
+  password: z.string().min(8, "Min 8 characters").max(128),
   phone: z.string().trim().max(30).optional().or(z.literal("")),
-  city: z.string().trim().max(80).optional().or(z.literal("")),
-  country: z.string().trim().max(80).optional().or(z.literal("")),
-  avatar_url: z.string().trim().url("Must be a URL").max(500).optional().or(z.literal("")),
+  city: z.string().trim().max(100).optional().or(z.literal("")),
+  country: z.string().trim().max(100).optional().or(z.literal("")),
 });
 type FormData = z.infer<typeof schema>;
 
 function RegisterPage() {
   const navigate = useNavigate();
+  const { register: registerUser } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -35,37 +37,23 @@ function RegisterPage() {
 
   const onSubmit = async (data: FormData) => {
     setSubmitting(true);
-    const { data: authData, error } = await supabase.auth.signUp({
-      email: data.email,
-      password: data.password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/dashboard`,
-        data: { full_name: data.full_name },
-      },
-    });
-    if (error) {
+    try {
+      await registerUser({
+        email: data.email,
+        password: data.password,
+        first_name: data.first_name,
+        last_name: data.last_name,
+        phone: data.phone || undefined,
+        city: data.city || undefined,
+        country: data.country || undefined,
+      });
+      toast.success("Account created! Welcome aboard.");
+      navigate({ to: "/dashboard" });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.detail : "Registration failed");
+    } finally {
       setSubmitting(false);
-      toast.error(error.message);
-      return;
     }
-
-    // Patch profile with extra fields
-    if (authData.user) {
-      await supabase
-        .from("profiles")
-        .update({
-          full_name: data.full_name,
-          phone: data.phone || null,
-          city: data.city || null,
-          country: data.country || null,
-          avatar_url: data.avatar_url || null,
-        })
-        .eq("id", authData.user.id);
-    }
-
-    setSubmitting(false);
-    toast.success("Account created! Welcome aboard.");
-    navigate({ to: "/dashboard" });
   };
 
   return (
@@ -104,15 +92,17 @@ function RegisterPage() {
             </p>
 
             <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="full_name">Full name</Label>
-                <Input id="full_name" {...register("full_name")} />
-                {errors.full_name && <p className="text-xs text-destructive">{errors.full_name.message}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="avatar_url">Photo URL</Label>
-                <Input id="avatar_url" {...register("avatar_url")} placeholder="Optional profile photo link" />
-                {errors.avatar_url && <p className="text-xs text-destructive">{errors.avatar_url.message}</p>}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="first_name">First name</Label>
+                  <Input id="first_name" {...register("first_name")} />
+                  {errors.first_name && <p className="text-xs text-destructive">{errors.first_name.message}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="last_name">Last name</Label>
+                  <Input id="last_name" {...register("last_name")} />
+                  {errors.last_name && <p className="text-xs text-destructive">{errors.last_name.message}</p>}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">

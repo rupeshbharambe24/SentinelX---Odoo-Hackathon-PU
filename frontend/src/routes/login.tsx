@@ -7,7 +7,8 @@ import { Compass, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/use-auth";
+import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
@@ -17,12 +18,13 @@ export const Route = createFileRoute("/login")({
 
 const schema = z.object({
   email: z.string().trim().email("Invalid email").max(255),
-  password: z.string().min(6, "Min 6 characters").max(72),
+  password: z.string().min(8, "Min 8 characters").max(128),
 });
 type FormData = z.infer<typeof schema>;
 
 function LoginPage() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -30,14 +32,15 @@ function LoginPage() {
 
   const onSubmit = async (data: FormData) => {
     setSubmitting(true);
-    const { error } = await supabase.auth.signInWithPassword(data);
-    setSubmitting(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+    try {
+      await login(data.email, data.password);
+      toast.success("Welcome back!");
+      navigate({ to: "/dashboard" });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.detail : "Sign-in failed");
+    } finally {
+      setSubmitting(false);
     }
-    toast.success("Welcome back!");
-    navigate({ to: "/dashboard" });
   };
 
   return (
