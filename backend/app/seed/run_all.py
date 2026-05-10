@@ -37,11 +37,11 @@ if __name__ == "__main__":
 
     total_start = time.time()
 
-    _step("Step 1/5 — Cities (GeoNames ~25k rows)", run_cities)
-    _step("Step 2/5 — Cost Index (Numbeo fuzzy match)", run_cost_index)
-    _step("Step 3/5 — Activities (OpenTripMap top 100 cities)", run_activities)
+    _step("Step 1/5 — Cities (GeoNames 33,645 rows)", run_cities)
+    _step("Step 2/5 — Cost Index (Numbeo fuzzy match → 27,866 cities)", run_cost_index)
+    _step("Step 3/5 — Activities (OpenTripMap top 100 cities → ~3,900 rows)", run_activities)
     _step("Step 4/5 — Photos (Pexels top 200 cities)", run_photos)
-    _step("Step 5/5 — Embeddings (all-MiniLM-L6-v2 384-dim)", run_embeddings)
+    _step("Step 5/5 — Embeddings (all-MiniLM-L6-v2 384-dim → all rows)", run_embeddings)
 
     total = time.time() - total_start
     print(f"\n{'=' * 60}")
