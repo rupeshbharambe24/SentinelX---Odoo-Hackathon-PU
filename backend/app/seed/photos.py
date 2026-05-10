@@ -70,6 +70,9 @@ def run_photos() -> None:
         for i, city in enumerate(cities, 1):
             query = f"{city.name} {city.country or ''} city landscape"
             url = _fetch_pexels_url(query)
+            # Fallback: try just the city name if no result with country
+            if not url:
+                url = _fetch_pexels_url(f"{city.name} travel")
             if url:
                 city.photo_url = url
                 db.add(city)
