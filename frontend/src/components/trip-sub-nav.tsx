@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
-  LayoutDashboard, Hammer, Eye, Wallet, Package, StickyNote, CalendarCheck, Settings, FileText
+  LayoutDashboard, Hammer, Eye, Wallet, Package, StickyNote, Settings, FileText
 } from "lucide-react";
 
 const items = [
@@ -10,7 +10,6 @@ const items = [
   { to: "/trips/$tripId/budget", label: "Budget", icon: Wallet },
   { to: "/trips/$tripId/packing", label: "Packing", icon: Package },
   { to: "/trips/$tripId/notes", label: "Notes", icon: StickyNote },
-  { to: "/trips/$tripId/bookings", label: "Bookings", icon: CalendarCheck },
   { to: "/trips/$tripId/invoice", label: "Invoice", icon: FileText },
   { to: "/trips/$tripId/settings", label: "Settings", icon: Settings },
 ] as const;

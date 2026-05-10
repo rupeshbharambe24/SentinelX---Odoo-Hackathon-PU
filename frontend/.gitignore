@@ -20,6 +20,9 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# TanStack Router auto-generated route tree (regenerated on `vite dev`)
+src/routeTree.gen.ts
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
