@@ -48,5 +48,9 @@ TRAVELOOP_BUILD_PLAN.md
 backend/data/raw/
 backend/app/data/embeddings/
 
+# Seed download caches (large binaries, fetched on demand by seed scripts)
+backend/data/cities15000.zip
+backend/data/*.zip
+
 # Uploads (ephemeral local file storage)
 backend/uploads/
