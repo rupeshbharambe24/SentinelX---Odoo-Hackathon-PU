@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from textwrap import dedent
+from typing import Tuple
 
 from app.schemas.ai import ItineraryRequest, ItineraryResponse
 from app.services.ai.client import llm_call
@@ -19,6 +21,21 @@ from app.services.ai.client import llm_call
 logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 2
+
+# In-memory itinerary cache: key = (destination_lower, days, sorted_interests, budget_int)
+# value = (expiry_unix_ts, ItineraryResponse). Process-local, fine for a single
+# uvicorn worker. Caps demo cost during repeated calls with the same input.
+_CACHE_TTL_SECONDS = 60 * 60  # 1 hour
+_cache: dict[Tuple[str, int, Tuple[str, ...], int], Tuple[float, ItineraryResponse]] = {}
+
+
+def _cache_key(req: ItineraryRequest) -> Tuple[str, int, Tuple[str, ...], int]:
+    return (
+        req.destination.strip().lower(),
+        req.days,
+        tuple(sorted(i.strip().lower() for i in req.interests)),
+        int(req.budget_usd),
+    )
 
 
 def _build_prompt(req: ItineraryRequest) -> str:
@@ -69,7 +86,17 @@ def generate_itinerary(req: ItineraryRequest) -> ItineraryResponse:
     """
     Call the LLM and parse the JSON response into an ItineraryResponse.
     Retries up to _MAX_RETRIES times on parse failure.
+
+    Identical (destination, days, interests, budget) requests within the last
+    hour are served from an in-memory cache.
     """
+    key = _cache_key(req)
+    now = time.time()
+    hit = _cache.get(key)
+    if hit and hit[0] > now:
+        logger.info("Itinerary cache HIT for %s (%d days)", req.destination, req.days)
+        return hit[1]
+
     prompt = _build_prompt(req)
     last_exc: Exception | None = None
 
@@ -92,6 +119,7 @@ def generate_itinerary(req: ItineraryRequest) -> ItineraryResponse:
                 len(result.sections),
                 attempt,
             )
+            _cache[key] = (now + _CACHE_TTL_SECONDS, result)
             return result
 
         except (json.JSONDecodeError, ValueError, KeyError) as exc:
