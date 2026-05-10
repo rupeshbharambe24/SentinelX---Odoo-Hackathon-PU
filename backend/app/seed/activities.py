@@ -221,27 +221,21 @@ def run_activities() -> None:
             for place in places:
                 try:
                     xid = place.get("xid", "")
-                    # OpenTripMap xid is string like "N123456" — hash to get a stable int id
+                    # OpenTripMap xid is string like "N123456" — hash to a stable int id
                     place_id = abs(hash(xid)) % (10 ** 9)
                     if place_id in seen_ids:
                         continue
                     seen_ids.add(place_id)
 
-                    props = place.get("properties", {})
-                    kinds = props.get("kinds", "")
-                    coords = place.get("geometry", {}).get("coordinates", [None, None])
-                    lng_val = coords[0] if coords[0] is not None else None
-                    lat_val = coords[1] if coords[1] is not None else None
-
-                    # Try to get description from wikipedia_extracts
-                    extracts = props.get("wikipedia_extracts")
-                    description = None
-                    if isinstance(extracts, dict):
-                        description = _safe_str(extracts.get("text"), 2000)
-
-                    raw_name = props.get("name") or place.get("name", "")
+                    # Radius endpoint returns these fields at the TOP LEVEL of
+                    # the place dict — not nested under "properties". (Harshal's
+                    # original code read place["properties"]["kinds"] which was
+                    # always empty, so every place fell to the sightseeing/$5
+                    # defaults. Fixed in this commit.)
+                    raw_name = place.get("name", "")
                     if not raw_name:
-                        continue  # skip unnamed places
+                        continue
+                    kinds = place.get("kinds", "") or ""
 
                     category = _map_category(kinds)
                     all_rows.append({
@@ -251,7 +245,7 @@ def run_activities() -> None:
                         "category":         category,
                         "avg_cost":         _estimate_cost(kinds),
                         "avg_duration_min": DURATION_BY_CATEGORY.get(category, 60),
-                        "description":      description,
+                        "description":      None,  # radius endpoint doesn't include it
                     })
                 except Exception as e:
                     print(f"    ⚠ Skipping place: {e}")
